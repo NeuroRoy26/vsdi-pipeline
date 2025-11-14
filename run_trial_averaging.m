@@ -47,7 +47,11 @@ for i = 1:num_trials
         nOut = floor(T / p.Bin); % e.g., 750 / 5 = 150 frames
         if nOut == 0; error('Bin size is too large for this data.'); end
         dff_raw_reshaped = dff_raw(:,:,1:nOut*p.Bin);
-        dff_binned = mean(reshape(dff_raw_reshaped, H, W, p.Bin, nOut), 3); 
+        dff_binned = squeeze(mean(reshape(dff_raw_reshaped, H, W, p.Bin, nOut), 3)); 
+        
+        %NOTE squeeze after mean was necessary to preserve 3D array shape,
+        %otherwise it became 4D array and screwed up the downprocessing
+        %steps
         
         % 3e. Filtering (on the binned dF/F movie)
         dff_processed = dff_binned;
@@ -92,7 +96,7 @@ if trials_processed_count > 0
     fprintf('\nAveraging complete. Total trials included: %d\n', trials_processed_count);
     
     % --- Save the final averaged movie to a NEW HDF5 file ---
-    output_h5_file = 'data/averaged_dff_E0B0-B3.h5';
+    output_h5_file = 'data/averaged_movie_E0B0-B3.h5';
     dataset_name = '/functional_dff';
     
     h5create(output_h5_file, dataset_name, size(average_dff_movie), 'DataType', 'double');

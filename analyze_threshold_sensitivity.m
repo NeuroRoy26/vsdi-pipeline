@@ -13,7 +13,7 @@ fprintf('========================================\n');
 fprintf('THRESHOLD SENSITIVITY ANALYSIS (OPTIMIZED)\n');
 fprintf('========================================\n\n');
 
-input_h5_file = 'data/preprocessing/averaged_movie_E0B0-E0B3.h5';
+input_h5_file = 'data/preprocessing/averaged_movie_E0B0-B3.h5';
 fprintf('Loading averaged dF/F movie from: %s\n', input_h5_file);
 
 try
@@ -148,7 +148,7 @@ for idx = 1:num_multipliers
     fprintf('  Saved: %s\n', output_h5_file);
     
     % Clear large variables to free memory
-    clear activation_mask activation_mask_uint8 threshold_map threshold_map_expanded activated_pixels_per_frame percent_active_per_frame;
+    %clear activation_mask activation_mask_uint8 threshold_map threshold_map_expanded activated_pixels_per_frame percent_active_per_frame;
 end
 %% 7. Create Comparative Visualization Figures (using saved statistics)
 fprintf('\nCreating diagnostic figures...\n');

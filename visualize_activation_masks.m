@@ -33,7 +33,7 @@ frame_stats = struct();
 %% 1. Load averaged dF/F movie (for reference)
 fprintf('Loading averaged dF/F movie...\n');
 try
-    dff_movie = h5read([data_dir 'preprocessing/averaged_movie_E0B0-E0B3.h5'], '/functional_dff');
+    dff_movie = h5read([data_dir 'preprocessing/averaged_movie_E0B0-B3.h5'], '/functional_dff');
     [H, W, T] = size(dff_movie);
     fprintf('  ✓ Dimensions: [%d, %d, %d]\n\n', H, W, T);
 catch ME
