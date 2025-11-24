@@ -3,188 +3,289 @@ clc; clear; close all;
 %%
 input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
 dataset_name = '/functional_dff';
-Fs = 500;
-
-fprintf('------------------------------------------------------------\n');
-fprintf('SECTION 1: LOADING DATA & PCA\n');
-fprintf('------------------------------------------------------------\n');
-
-try
-    mov = h5read(input_file, dataset_name);
-catch
-    error('File not found! Check the filename in input_file.');
-end
-
+original_sampling_rate = 500; %in Hz original is 500.67
+Fs = original_sampling_rate/2;   %since interleaved frames
+mov = h5read(input_file, dataset_name);
 [H, W, T] = size(mov);
-fprintf('  Dimensions: %d x %d pixels, %d frames (%.2f s)\n', H, W, T, T/Fs);
+fprintf('Loaded movie: %d x %d pixels, %d frames (%.2f s)\n', H, W, T, T/Fs);
 
-% Reshape for PCA (time as rows, pixels as columns)
-X = reshape(mov, H*W, T).';
+% Flatten -> rows = time, columns = pixels
+X = reshape(mov, H*W, T).';   % [T x P]
+X(isnan(X)) = 0;
 
-if any(isnan(X), 'all')
-    fprintf('  Warning: NaNs found. Replacing with zeros.\n');
-    X(isnan(X)) = 0;
+%% spatial filtering
+%it was already done in run_trial_averaging.m
+%applying here again
+
+fprintf('Spatial smoothing...\n');
+% Reshape back to 3D for smoothing
+temp_mov = reshape(X.', H, W, T); 
+
+% Apply Gaussian filter with sigma = 2 pixels
+% This blends adjacent pixels, reducing single-pixel noise
+for t = 1:T
+    temp_mov(:,:,t) = imgaussfilt(temp_mov(:,:,t), 2); 
 end
 
-fprintf('  Running full PCA decomposition...\n');
+% Flatten back to 2D for PCA
+X = reshape(temp_mov, H*W, T).';
+fprintf('Smoothing complete.\n');
+%% ------------------------------------------------------------
+%  2. PCA 
+fprintf('\nRunning PCA...\n');
+[pca_coeff_full, pca_score_full, ~, ~, explained_full] = pca(X, 'Algorithm', 'svd', 'Economy', 'on');
+fprintf('PCA complete.\n');
+Z = size(pca_score_full,2); % total number of PCs
+fprintf('Total %d Principle components', Z);
+num_components = 5; 
+fprintf('Keeping %d components (%.2f%% variance)\n', ...
+    num_components, sum(explained_full(1:num_components)));
 
-[pca_coeff_full, pca_score_full, ~, ~, explained_full] = pca(X);
+pca_tc   = pca_score_full(:, 1:num_components);   % [T x K]; K is total PCs
+pca_maps = pca_coeff_full(:, 1:num_components);   % [Pixels x K]
 
-fprintf('  Full PCA complete.\n');
-
-% Inspect PCA structure
-total_components = length(explained_full);
-fprintf('  Total PCA components available: %d\n', total_components);
-
-figure(1);
-plot(cumsum(explained_full), 'LineWidth', 2);
-xlabel('Number of components');
-ylabel('Cumulative variance (%)');
-title('PCA cumulative variance');
-grid on;
-
-%% Select top components
-num_components = 462;
-fprintf('  Extracting first %d PCA components for analysis...\n', num_components);
-
-pca_coeff = pca_coeff_full(:, 1:num_components);   % spatial components
-pca_score = pca_score_full(:, 1:num_components);   % temporal components
-explained = explained_full(1:num_components);
-
-fprintf('  First %d components explain %.2f%% variance.\n', ...
-        num_components, sum(explained_full(1:num_components)));
-
-fprintf('  Ready for ICA or downstream analysis.\n');
-
-%% ========================================================================
-%  SECTION 2: INDEPENDENT COMPONENT ANALYSIS (ICA)
-% =========================================================================
-fprintf('------------------------------------------------------------\n');
-fprintf('SECTION 2: RUNNING ICA (Spatial)\n');
-fprintf('------------------------------------------------------------\n');
-
-if ~exist('pca_score', 'var')
-    error('PCA data not found. Please run Section 1 first.');
-end
-
-% --- Run Reconstruction ICA (RICA) ---
-% We run ICA on pca_score (Spatial) to find independent spatial sources
-Mdl = rica(pca_coeff, num_components);
-
-% --- Recover Spatial and Temporal Parts ---
-% NOTE: fixed the logic here. 
-% transform(Mdl, pca_score) returns the sources found in the input. 
-% Since input was [Pixels x PCs], the output is [Pixels x ICs].
-ica_maps_flat = transform(Mdl, pca_coeff); 
-
-% Project weights to get Time Courses
-% [Time x PCs] * [PCs x ICs] = [Time x ICs]
-ica_timecourses = pca_score * Mdl.TransformWeights;
-
-% Reshape Flat Maps back to Image Dimensions
-ica_maps = reshape(ica_maps_flat, H, W, num_components);
-
-fprintf('  ICA Complete. Extracted %d components.\n', num_components);
-
-
-%% ========================================================================
-%  SECTION 3: STATISTICS, METRICS & VISUALIZATION
-% =========================================================================
-fprintf('------------------------------------------------------------\n');
-fprintf('SECTION 3: METRICS & PLOTTING\n');
-fprintf('------------------------------------------------------------\n');
-
-if ~exist('ica_maps', 'var')
-    error('ICA results not found. Please run Section 2 first.');
-end
-
-fprintf('%-4s | %-10s | %-10s | %-10s | %-15s\n', ...
-    'IC#', 'Dom. Freq', 'Sp. Kurt', 'Max Z-Scr', 'Probable Source');
-fprintf('------------------------------------------------------------\n');
-
-% Pre-calculate frequency vector
+%% ------------------------------------------------------------
+%  PSD to check dominant frequencies
+fprintf('\nComputing Global PSD...\n');
 L = T;
 f = Fs*(0:(L/2))/L;
-stats_struct = struct();
+P1_global = zeros(L/2+1, 1);
 
-for i = 1:num_components
+% average the spectrum of the top 10 PCs weighted by their variance.
+% gives a robust view of what frequencies dominate the data.
+check_n_comps = max(num_components, Z);
+for k = 1:check_n_comps
+    Y = fft(pca_score_full(:,k));
+    P2 = abs(Y/L);
+    P1 = P2(1:L/2+1);
+    P1(2:end-1) = 2*P1(2:end-1);
+    % Add to global sum
+    P1_global = P1_global + P1;
+end
+
+figure('Name', 'Global Power Spectral Density', 'Color', 'w');
+plot(f, P1_global, 'k', 'LineWidth', 1);
+grid on;
+xlabel('Frequency (Hz)');
+ylabel('Magnitude');
+title('Power Spectral Density');
+
+%% ------------------------------------------------------------
+% %  Freddy the FREQUENCY HUNTER: Identify the Source of 0.3 and 0.6 Hz
+% % ------------------------------------------------------------
+% target_range = [0.2, 0.8]; % Looking for 0.33 Hz and 0.66 Hz
+% fprintf('\nHunting for components between %.1f and %.1f Hz...\n', target_range(1), target_range(2));
+% 
+% figure('Name', 'Frequency Hunter', 'Color', 'w', 'Position', [100 100 1000 600]);
+% 
+% found_count = 0;
+% 
+% % Loop through the components we kept
+% for k = 1:Z
+%     % Get the time course
+%     tc = pca_score_full(:, k);
+%     tc = detrend(tc); % Remove linear drift
+% 
+%     % Calculate Peak Frequency for this specific component
+%     Y = fft(tc);
+%     P2 = abs(Y/L);
+%     P1 = P2(1:L/2+1);
+%     [max_val, idx] = max(P1(2:end)); % Skip DC
+%     dom_freq = f(idx+1);
+% 
+%     % Check if this component matches your mystery frequency
+%     if dom_freq >= target_range(1) && dom_freq <= target_range(2)
+%         found_count = found_count + 1;
+% 
+%         % --- PLOT THE CULPRIT ---
+%         clf;
+% 
+%         % 1. The Map (Where is it?)
+%         subplot(2, 2, [1 3]); 
+%         map = pca_coeff_full(:, k);
+%         map = reshape(map, H, W);
+% 
+%         % Auto-contrast
+%         clim = [prctile(map(:), 1) prctile(map(:), 99)];
+%         imagesc(map, clim);
+%         axis image off; colormap jet; colorbar;
+%         title(sprintf('Component #%d (%.2f Hz)', k, dom_freq), 'FontSize', 14);
+% 
+%         % 2. The Trace (What does it look like?)
+%         subplot(2, 2, 2);
+%         plot((1:T)/Fs, tc, 'k', 'LineWidth', 1.5);
+%         axis tight; grid on;
+%         xlabel('Time (s)'); title('Time Course');
+% 
+%         % 3. The Spectrum (Proof)
+%         subplot(2, 2, 4);
+%         plot(f, P1, 'r', 'LineWidth', 1.5);
+%         xlim([0 5]); grid on; % Zoom in on low freq
+%         xlabel('Frequency (Hz)'); title('Spectrum');
+% 
+%         fprintf('Match found: Component #%d is oscillating at %.2f Hz.\n', k, dom_freq);
+%         fprintf('Press SPACE to continue...\n');
+%         waitforbuttonpress;
+%     end
+% end
+% 
+% if found_count == 0
+%     fprintf('No specific components found peaking exactly in that range.\n');
+%     fprintf('The signal might be distributed across many small components.\n');
+% else
+%     fprintf('Search complete.\n');
+% end
+
+%% ------------------------------------------------------------
+%  3. ICA 
+fprintf('\nRunning FastICA on spatial dimension...\n');
+[icasig, A, ~] = fastica(pca_maps', ... 
+    'verbose', 'on', ...
+    'numOfIC', num_components, ...
+    'approach', 'symm', ...
+    'g', 'tanh'); 
+
+% 1. Get Spatial Maps
+ica_maps_flat = icasig.'; 
+% 2. Get Time Courses
+ica_timecourses = pca_tc * A; 
+
+num_ICs = size(ica_maps_flat, 2);
+ica_maps = reshape(ica_maps_flat, H, W, num_ICs);
+fprintf('ICA complete. Extracted %d components.\n', num_ICs);
+
+%% ------------------------------------------------------------
+fprintf('\nComputing metrics...\n');
+stats = struct();
+for k = 1:num_ICs
+    % Extract map and trace
+    map_flat = ica_maps_flat(:,k);
+    tc = ica_timecourses(:,k);
     
-    % A. Spatial Statistics
-    % Use the flattened map from Section 2
-    this_map_flat = ica_maps_flat(:,i); 
-    sp_kurt = kurtosis(this_map_flat); 
+    % --- FLIP SIGN CHECK ---
+    if skewness(map_flat) < 0
+        map_flat = -map_flat;
+        tc = -tc;
+        ica_maps(:,:,k) = -ica_maps(:,:,k); 
+    end
     
-    % B. Temporal Statistics (Z-Score)
-    this_tc = ica_timecourses(:,i);
-    tc_z = (this_tc - mean(this_tc)) / std(this_tc);
-    max_z = max(abs(tc_z)); 
+    sp_kurt = kurtosis(map_flat);
+    tc_z = (tc - mean(tc)) / std(tc);
+    max_z = max(abs(tc_z));
     
-    % C. Spectral Analysis
-    Y = fft(this_tc);
+    Y = fft(tc);
     P2 = abs(Y/L);
     P1 = P2(1:L/2+1);
     P1(2:end-1) = 2*P1(2:end-1);
     
-    [max_pow, idx] = max(P1(2:end)); 
-    dom_freq = f(idx+1); 
+    [~, idx] = max(P1(2:end));
+    dom_freq = f(idx+1);
     
-    % D. Heuristic Identification
-    guess = 'Unknown/Noise';
-    if dom_freq >= 3 && dom_freq <= 7
-        guess = 'HEARTBEAT';
-    elseif dom_freq >= 0.5 && dom_freq <= 2.5
-        guess = 'RESPIRATION';
-    elseif dom_freq < 0.2
-        guess = 'DRIFT/VASO';
-    elseif max_z > 5 && sp_kurt > 6
-        guess = '*** NEURONAL ***'; 
-    end
+    stats(k).freq = dom_freq;
+    stats(k).kurt = sp_kurt;
+    stats(k).maxz = max_z;
+    stats(k).P1 = P1;
+end
+fprintf('Metrics complete.\n');
+
+%% ------------------------------------------------------------
+fprintf('\nGenerating Montage View...\n');
+% Calculate grid dimensions (approx square)
+grid_cols = ceil(sqrt(num_ICs));
+grid_rows = ceil(num_ICs / grid_cols);
+
+% Create a stitched image
+stitched_im = zeros(grid_rows * H, grid_cols * W);
+
+for k = 1:num_ICs
+    % Get row/col index
+    [r_idx, c_idx] = ind2sub([grid_rows, grid_cols], k);
     
-    fprintf('%02d   | %5.1f Hz   | %7.1f    | %7.1f    | %s\n', ...
-        i, dom_freq, sp_kurt, max_z, guess);
-        
-    % Store for plotting
-    stats_struct(i).dom_freq = dom_freq;
-    stats_struct(i).sp_kurt = sp_kurt;
-    stats_struct(i).max_z = max_z;
-    stats_struct(i).label = guess;
-    stats_struct(i).P1 = P1;
-    stats_struct(i).f = f;
-    stats_struct(i).tc_z = tc_z;
+    % Get map and normalize to 0-1 for display (so weak components are visible)
+    this_map = ica_maps(:,:,k);
+    clim = [prctile(this_map(:), 1) prctile(this_map(:), 99)];
+    % Clip outliers
+    this_map(this_map < clim(1)) = clim(1);
+    this_map(this_map > clim(2)) = clim(2);
+    % Normalize 0 to 1
+    this_map = (this_map - clim(1)) / (clim(2) - clim(1));
+    
+    % Insert into grid
+    r_start = (r_idx-1)*H + 1;
+    c_start = (c_idx-1)*W + 1;
+    stitched_im(r_start:r_start+H-1, c_start:c_start+W-1) = this_map;
 end
 
-% --- VISUALIZATION ---
-figure('Name', 'ICA Component Inspector', 'Color', 'w', 'Position', [50, 50, 1400, 900]);
+figure('Name', 'Montage of All Components', 'Color', 'w');
+imagesc(stitched_im);
+colormap jet; 
+axis image off;
+title(sprintf('Montage of %d ICA Components', num_ICs));
 
-% Plot Top 5
-for i = 1:5
-    % 1. Spatial Map 
-    subplot(5, 4, (i-1)*4 + 1);
-    map_vis = ica_maps(:,:,i);
-    clim = [prctile(map_vis(:), 1) prctile(map_vis(:), 99)];
-    imagesc(map_vis, clim); 
-    colormap(parula); axis image; axis off;
-    title(sprintf('IC %02d: Map (Kurt=%.1f)', i, stats_struct(i).sp_kurt), 'FontWeight', 'bold');
+%% ------------------------------------------------------------
+figure('Name', 'ICA Inspector', 'Color', 'w', 'Position', [200 200 1200 500]);
+fprintf('Go...!\n');
+
+for k = 1:num_ICs
+    subplot(1, 3, 1);
+    m = ica_maps(:,:,k);
+    clim = [prctile(m(:), 1) prctile(m(:), 99)]; 
+    imagesc(m, clim); 
+    axis image off; 
+    colormap jet;
+    title(sprintf('Component #%d\n(Kurt: %.1f)', k, stats(k).kurt), 'FontSize', 14);
     
-    % 2. Time Course 
-    subplot(5, 4, (i-1)*4 + 2);
-    plot((1:T)*(1000/Fs), stats_struct(i).tc_z, 'k'); 
+    subplot(1, 3, 2);
+    plot((1:T)/Fs, ica_timecourses(:,k), 'k', 'LineWidth', 1); 
     axis tight; grid on;
-    ylabel('Z-Score');
-    title(sprintf('Time Course (MaxZ=%.1f)', stats_struct(i).max_z));
+    xlabel('Time (s)'); 
+    title('Time Course', 'FontSize', 12);
     
-    % 3. Power Spectrum
-    subplot(5, 4, (i-1)*4 + 3);
-    plot(stats_struct(i).f, stats_struct(i).P1, 'b', 'LineWidth', 1.5);
-    xlim([0 10]); grid on;
-    xlabel('Freq (Hz)');
-    title(sprintf('Peak=%.1f Hz', stats_struct(i).dom_freq));
+    subplot(1, 3, 3);
+    plot(f, stats(k).P1, 'r', 'LineWidth', 1.5); 
+    xlim([0 20]); 
+    grid on;
+    xlabel('Frequency (Hz)'); 
+    title(sprintf('Dom Freq: %.1f Hz', stats(k).freq), 'FontSize', 12);
     
-    % 4. Info
-    subplot(5, 4, (i-1)*4 + 4);
-    axis off;
-    text(0, 0.5, sprintf('Label: %s', stats_struct(i).label), ...
-        'FontSize', 10, 'FontWeight', 'bold', 'Color', 'r', 'Interpreter', 'none');
+    w = waitforbuttonpress; 
+end
+%% ============================================================
+fprintf('\nGenerating Inspector Figures...\n');
+comps_per_fig = 4;
+num_figs = ceil(num_ICs / comps_per_fig);
+
+for fig_idx = 1:num_figs
+    figure('Name', sprintf('ICA Batch %d', fig_idx), 'Color', 'w', 'Position', [50, 50, 1000, 800]);
+    
+    start_idx = (fig_idx-1)*comps_per_fig + 1;
+    end_idx = min(start_idx + comps_per_fig - 1, num_ICs);
+    
+    plot_idx = 1;
+    for k = start_idx:end_idx
+        % Layout: 4 components, each gets 1 row (3 subplots per row)
+        % Subplot indices: (TotalRows, TotalCols, Index)
+        
+        % 1. MAP
+        subplot(comps_per_fig, 3, (plot_idx-1)*3 + 1);
+        m = ica_maps(:,:,k);
+        clim = [prctile(m(:), 5) prctile(m(:), 99.5)]; 
+        imagesc(m, clim); axis image off; colormap jet;
+        title(sprintf('IC #%d (Kurt: %.1f)', k, stats(k).kurt));
+        
+        % 2. TIME COURSE
+        subplot(comps_per_fig, 3, (plot_idx-1)*3 + 2);
+        plot((1:T)/Fs, ica_timecourses(:,k), 'k'); axis tight; box off;
+        title('Trace');
+        
+        % 3. PSD
+        subplot(comps_per_fig, 3, (plot_idx-1)*3 + 3);
+        plot(f, stats(k).P1, 'r', 'LineWidth', 1.5); xlim([0 15]); box off;
+        title(sprintf('Freq: %.2f Hz', stats(k).freq));
+        
+        plot_idx = plot_idx + 1;
+    end
 end
 
-fprintf('\nDone. Check figure.\n');
+fprintf('\n=== DONE ===\n');
+fprintf('Check the generated figures for details.\n');
