@@ -12,7 +12,7 @@ h5_files_to_average = {
 num_trials = length(h5_files_to_average);
 
 % --- Processing Parameters ---
-p.Bin = 5;
+p.Bin = 1;
 p.Sigma = 1;
 p.MedianWin = 3;
 p.BaselineIdx = 1:100;
@@ -96,7 +96,7 @@ if trials_processed_count > 0
     fprintf('\nAveraging complete. Total trials included: %d\n', trials_processed_count);
     
     % --- Save the final averaged movie to a NEW HDF5 file ---
-    output_h5_file = 'data/averaged_movie_E0B0-B3.h5';
+    output_h5_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
     dataset_name = '/functional_dff';
     
     h5create(output_h5_file, dataset_name, size(average_dff_movie), 'DataType', 'double');

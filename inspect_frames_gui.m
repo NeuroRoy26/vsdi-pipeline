@@ -7,7 +7,7 @@ function inspect_frames_gui()
 %   Drag the slider to step through frames, or use left/right arrow keys.
 % simply type inspect_frames_gui in the command window to run this gui
 clearvars; close all; clc;
-dff_file    = 'data/preprocessing/averaged_movie_E0B0-B3.h5';
+dff_file    = 'data/averaged_movie_E0B0-B3_unbinned.h5';
 dff_dataset = '/functional_dff';
 mask3_file  = 'data/activation_mask_3x.h5';
 mask4_file  = 'data/activation_mask_4x.h5';

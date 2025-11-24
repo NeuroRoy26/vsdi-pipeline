@@ -20,14 +20,14 @@
 clearvars; close all; clc;
 
 %% --------- User parameters ---------
-dff_file     = 'data/preprocessing/averaged_movie_E0B0-B3.h5';
+dff_file     = 'data/averaged_movie_E0B0-B3_unbinned.h5';
 dff_dataset  = '/functional_dff';
 mask3_file   = 'data/activation_mask_3x.h5';
 mask4_file   = 'data/activation_mask_4x.h5';
 mask_dataset = '/activation_mask';
 
-out_dir_figs = 'data/figures';
-out_dir_res  = 'data/results';
+out_dir_figs = 'data/';
+out_dir_res  = 'data/';
 
 % Running mean window (frames) for drift check
 running_win = 15;   % ~ (adjustable)
