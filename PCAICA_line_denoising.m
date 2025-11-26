@@ -69,7 +69,7 @@ fprintf('\nRunning PCA...\n');
 [pca_coeff, pca_score, ~, ~, explained] = pca(X_clean, 'Algorithm', 'svd', 'Economy', 'on');
 
 % Reduced to 5 components (Based on your successful test)
-num_components = 4; 
+num_components = 3; 
 fprintf('Keeping top %d components (%.2f%% variance)\n', ...
     num_components, sum(explained(1:num_components)));
 
