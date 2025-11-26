@@ -1,5 +1,5 @@
 % post_reconstruction.m
-% clc; close all;
+clc; close all;
 
 % =========================================================================
 % 0. BRIDGE: MAP VARIABLES FROM PREVIOUS STEPS
@@ -63,7 +63,6 @@ end
 
 %% 3b. ADVANCED MODEL-BASED DETRENDING
 % Diagnostic tool for finding the right bleaching curve
-
 % fprintf('\n--- 3b. RUNNING MODEL COMPARISON FOR BLEACHING ---\n');
 % 
 % % 1. Extract Global Signal
