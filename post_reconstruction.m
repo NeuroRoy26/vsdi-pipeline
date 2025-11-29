@@ -1,4 +1,4 @@
-% post_reconstruction.m
+% post_reconstruction_v1.21.m
 clc; close all;
 
 % =========================================================================
@@ -161,7 +161,7 @@ detrended_2d = zeros(size(movie_2d));
 
 t_vec = (1:T)';
 % Mask: We use Pre-stim (1-370) and End (700-750) to fit the noise
-fit_mask = [1:370, 700:750]; 
+fit_mask = [1:374, 400:T]; 
 x_train = t_vec(fit_mask);
 
 % 2. The Loop (Vectorized for speed where possible)

@@ -36,7 +36,7 @@ fprintf('\nRunning PCA...\n');
 Z = size(pca_score_full,2);
 fprintf('PCA complete. Total PCs: %d\n', Z);
 
-num_components = 4; 
+num_components = 7; 
 fprintf('Keeping %d PCs (%.2f%% variance)\n', ...
     num_components, sum(explained_full(1:num_components)));
 
@@ -151,31 +151,32 @@ end
 figure('Name', 'Montage of All Components', 'Color', 'w');
 imagesc(stitched_im); axis image off; colormap jet;
 title(sprintf('Montage of %d ICA Components', num_ICs));
+colorbar;
 
 %% ------------------------------------------------------------
-% Interactive ICA inspector
-figure('Name', 'ICA Inspector', 'Color', 'w', 'Position', [200 200 1200 500]);
-fprintf('Go...!\n');
-
-for k = 1:num_ICs
-    subplot(1, 3, 1);
-    m = ica_maps(:,:,k);
-    clim = [prctile(m(:), 1) prctile(m(:), 99)];
-    imagesc(m, clim); axis image off; colormap jet;
-    title(sprintf('Component #%d (Kurt: %.1f)', k, stats(k).kurt));
-
-    subplot(1, 3, 2);
-    plot((1:T)/Fs, ica_timecourses(:,k), 'k', 'LineWidth', 1);
-    axis tight; grid on; xlabel('Time (s)');
-    title('Time Course');
-
-    subplot(1, 3, 3);
-    plot(f, stats(k).P1, 'r', 'LineWidth', 1.5);
-    xlim([0 20]); grid on; xlabel('Frequency (Hz)');
-    title(sprintf('Dom Freq: %.1f Hz', stats(k).freq));
-
-    waitforbuttonpress;
-end
+% % Interactive ICA inspector
+% figure('Name', 'ICA Inspector', 'Color', 'w', 'Position', [200 200 1200 500]);
+% fprintf('Go...!\n');
+% 
+% for k = 1:num_ICs
+%     subplot(1, 3, 1);
+%     m = ica_maps(:,:,k);
+%     clim = [prctile(m(:), 1) prctile(m(:), 99)];
+%     imagesc(m, clim); axis image off; colormap jet;
+%     title(sprintf('Component #%d (Kurt: %.1f)', k, stats(k).kurt));
+% 
+%     subplot(1, 3, 2);
+%     plot((1:T)/Fs, ica_timecourses(:,k), 'k', 'LineWidth', 1);
+%     axis tight; grid on; xlabel('Time (s)');
+%     title('Time Course');
+% 
+%     subplot(1, 3, 3);
+%     plot(f, stats(k).P1, 'r', 'LineWidth', 1.5);
+%     xlim([0 20]); grid on; xlabel('Frequency (Hz)');
+%     title(sprintf('Dom Freq: %.1f Hz', stats(k).freq));
+% 
+%     waitforbuttonpress;
+% end
 
 %% ------------------------------------------------------------
 % Batch figures
