@@ -1,7 +1,7 @@
 % ICA_reconstruct.m
 
 fprintf('=== ICA RECONSTRUCTION SCRIPT ===\n\n');
-sign_ass = +1; % chagne to -1 for sign inversion
+sign_ass = -1; % chagne to -1 for sign inversion
 %% ------------------------------------------------------------
 % Check required variables
 % FIX: Added check for 'Fs' to prevent crashes during plotting

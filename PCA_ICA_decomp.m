@@ -1,7 +1,9 @@
 clc; clear; close all;
 
 %%
-input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+% input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+input_file = 'data/preprocessing/led_E0B0_dff_unbinned.h5';
+
 dataset_name = '/functional_dff';
 original_sampling_rate = 500; % in Hz (original is ~500.67)
 Fs = original_sampling_rate / 2;   % interleaved frames → half rate

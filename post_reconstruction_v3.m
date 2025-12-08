@@ -1,10 +1,9 @@
-% post_reconstruction_v3.6.m
-clc; close all;
-fprintf('=== POST-RECONSTRUCTION PROCESSING (v3.6 - Red Heatmap Return) ===\n\n');
+% post_reconstruction_v3.8.m
+clear; clc; close all;
+fprintf('=== POST-RECONSTRUCTION PROCESSING ===\n\n');
+sign_ass = -1; % chagne to -1 for sign inversion
+%% DATA LOADING
 
-%% =========================================================================
-% --- DATA LOADING ---
-% =========================================================================
 data_found = false;
 if exist('reconstructed_movie', 'var')
     M = double(reconstructed_movie); data_found = true;
@@ -36,9 +35,6 @@ end
 [H, W, T] = size(M);
 fprintf('Data: %d x %d pixels, %d frames (%.1f Hz)\n', H, W, T, sampling_rate);
 
-%% =========================================================================
-% --- STRUCTURAL BACKGROUND PREP ---
-% =========================================================================
 input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
 dataset_name = '/structural';
 structural_rgb = [];
@@ -63,7 +59,7 @@ end
 % --- SETTINGS & PROCESSING ---
 % =========================================================================
 SIGMA = 2.0; 
-FLOOR_SENSITIVITY = 0.40;
+FLOOR_SENSITIVITY = 0.45;
 SATURATION_PCT = 98.5;
 
 % CHANGE: Back to 'jet' for that classic Red/Blue look
@@ -72,8 +68,9 @@ CHOSEN_CMAP = 'jet';
 fprintf('\nProcessing (Sigma=%.1f, Floor=%.2f, Sat=%.1f, Cmap=%s)...\n', ...
     SIGMA, FLOOR_SENSITIVITY, SATURATION_PCT, CHOSEN_CMAP);
 
-baseline = mean(M(:,:,350:370), 3);
+baseline = mean(M(:,:,300:370), 3);
 M_sub = M - baseline;
+M_sub = sign_ass * M_sub;
 M_smooth = zeros(H, W, T);
 for t = 1:T
     M_smooth(:,:,t) = imgaussfilt(M_sub(:,:,t), SIGMA);
@@ -217,55 +214,234 @@ function update_frame(slider, h_img, h_title, h_text, data, floor_val, sat_val, 
     set(h_text, 'String', sprintf('%d / %d', idx, size(data,3)));
 end
 
-%% ===== DEBUG: PRINT RAW VALUES ACROSS FRAMES =====
+%% =========================================================================
+% fprintf('\nGenerating Raw Diagnostic Montage...\n');
+% 
+% % Settings for the raw view
+% start_f = 376 - 4;  % Start a bit before stimulus
+% end_f   = 376 + 11; % Show the immediate response
+% num_frames_diag = end_f - start_f + 1;
+% 
+% % Calculate absolute max to center the colors at 0
+% % This ensures 0 is Green, Positive is Red, Negative is Blue
+% max_abs_val = max(abs(M_smooth(:))) * 0.8; % *0.8 to make faint signals visible
+% 
+% figure('Name', 'Raw Data Montage (No Suppression)', 'Color', 'w', 'Position', [50 50 1600 500]);
+% 
+% rows = 2; cols = 8; % Adjust as needed
+% for k = 1:num_frames_diag
+%     frame_idx = start_f + k - 1;
+% 
+%     if frame_idx > size(M_smooth, 3), break; end
+% 
+%     img_raw = M_smooth(:,:,frame_idx);
+% 
+%     subplot(rows, cols, k);
+% 
+%     % 1. Draw Structure (Background)
+%     if ~isempty(structural_rgb)
+%         image(structural_rgb); hold on;
+%     end
+% 
+%     % 2. Draw Data (Foreground) - NO CLIPPING
+%     h_raw = imagesc(img_raw);
+% 
+%     % 3. Set Constant Visibility (No hiding low values)
+%     % We set it to 0.6 so we can see the data AND the background brain
+%     set(h_raw, 'AlphaData', 0.6); 
+% 
+%     % 4. Symmetric Colormap
+%     colormap(gca, jet(256));
+%     caxis([-max_abs_val, max_abs_val]);
+% 
+%     axis image off;
+% 
+%     % Titles
+%     if frame_idx == 376
+%         title('STIMULUS', 'Color', 'r', 'FontWeight', 'bold');
+%     else
+%         lat = (frame_idx - 376) * (1000/sampling_rate);
+%         title(sprintf('%.1f ms', lat));
+%     end
+% end
+% sgtitle('Raw Data: Blue=Negative, Green=Zero, Red=Positive', 'FontSize', 14);
 
-test_frames = 370:385;   % spans your stimulus window
-num_test = length(test_frames);
+%% =========================================================================
+fprintf('\nGenerating Global Trace Graph...\n');
+original_sampling_rate = 250;
 
-% Pick a few meaningful pixels manually
-pix_list = [
-    round(H/2), round(W/2);        % center
-    round(H/2)+10, round(W/2);     % below center
-    round(H/2), round(W/2)+10      % right of center
-];
+global_trace = squeeze(mean(mean(M_smooth, 1), 2));
+global_trace = -1 * global_trace;
 
-fprintf('\n=== RAW VALUE DEBUG (M_smooth) ===\n');
-fprintf('Sampling Rate: %.1f Hz  |  Frame step: %.2f ms\n\n', ...
-        sampling_rate, 1000/sampling_rate);
+global_trace_raw = squeeze(mean(mean(M_smooth, 1), 2));
+% This smoothing window size should be much longer than your fast signal (~50 ms)
+window_frames = 80; 
+% 'movmean' or 'sgolay' are good for 1D traces. movmean is simplest.
+% The smoothed trace is the low-frequency component (the curve).
+estimated_baseline = smoothdata(global_trace_raw, 'movmean', window_frames);
+% The corrected trace now contains only the fast signals relative to a zero baseline.
+global_trace_corrected = global_trace_raw - estimated_baseline;
+global_trace_corrected = -1 * global_trace_corrected; 
 
-for p = 1:size(pix_list,1)
-    r = pix_list(p,1);
-    c = pix_list(p,2);
+% Frame 1 = 0 ms
+time_axis_ms = (0:T-1) * (1000 / original_sampling_rate);
+
+figure;
+plot(time_axis_ms, global_trace_corrected, 'k', 'LineWidth', 1.2); hold on;
+title('Global Trace (Absolute Time)');
+subtitle('Smoothened & Polarity Inverted');
+xlabel('Time (ms)');
+ylabel('Mean Intensity');
+grid on;
+axis tight;
+xline(1499, '--r', 'Stimulus', 'LabelVerticalAlignment', 'bottom', 'LineWidth', 1);
+%%
+figure;
+plot(time_axis_ms, global_trace, 'k', 'LineWidth', 1.2); hold on;
+title('Global Trace (Absolute Time)');
+subtitle('Polarity Inverted');
+xlabel('Time (ms)');
+ylabel('Mean Intensity');
+grid on;
+axis tight;
+xline(1499, '--r', 'Stimulus', 'LabelVerticalAlignment', 'bottom', 'LineWidth', 1);
+
+fprintf('✓ Global trace plotted (Absolute ms).\n');
+%%
+estimated_baseline_Msmooth = smoothdata(M_smooth, 3, 'movmean', 200);
+% The corrected trace now contains only the fast signals relative to a zero baseline.
+M_smooth_corrected = M_smooth - estimated_baseline_Msmooth;
+
+figure('Name', 'Montage 1', 'Color', 'w', 'Position', [10 10 1600 900]);
+
+try, cmap = feval(CHOSEN_CMAP, 256); catch, cmap = jet(256); end
+
+start_f = 376 - 8; 
+end_f = 376 + 23; 
+num_frames = end_f - start_f + 1;
+rows = 4; cols = 8; 
+
+for k = 1:num_frames
+    frame_idx = start_f + k - 1;
+    img = M_smooth_corrected(:,:,frame_idx);
     
-    fprintf('Pixel (%d, %d):\n', r, c);
-    fprintf('Frame\tTime(ms)\tValue\n');
+    img_display = img;
+    img_display(img < floor_val) = floor_val;
     
-    base_f = 376;
+    subplot(rows, cols, k);
     
-    for k = 1:num_test
-        f = test_frames(k);
-        t_ms = (f - base_f) * (1000/sampling_rate);
-        val = M_smooth(r, c, f);
-        fprintf('%d\t%+.1f\t\t%.6f\n', f, t_ms, val);
+    if ~isempty(structural_rgb)
+        image(structural_rgb); 
+        hold on;
+        h_ov = imagesc(img_display);
+        
+        % Transparency Calculation
+        alpha_data = (img_display - floor_val) / (sat_val - floor_val);
+        alpha_data(alpha_data < 0) = 0;
+        alpha_data(alpha_data > 1) = 1;
+        alpha_data = alpha_data.^1.5; % Soften edges
+        
+        set(h_ov, 'AlphaData', alpha_data);
+        colormap(gca, cmap);
+        caxis([floor_val, sat_val]);
+        hold off;
+    else
+        imagesc(img_display);
+        colormap(gca, cmap);
+        caxis([floor_val, sat_val]);
     end
     
-    fprintf('\n');
+    axis image off;
+    
+    if frame_idx == 376
+        title('STIMULUS', 'Color', 'r', 'FontWeight', 'bold');
+    else
+        latency = (frame_idx - 376) * (1000/sampling_rate);
+        title(sprintf('%.0f ms', latency), 'Color', 'k');
+    end
 end
+
+h = colorbar; h.Position = [0.92 0.1 0.02 0.8]; h.Color = 'k'; 
+sgtitle(sprintf('Neural Propagation (Sigma=%.1f, Floor=%.2f)', SIGMA, FLOOR_SENSITIVITY), 'Color', 'k');
+
+
+%%
+% fprintf('\nGenerating Peri-Stimulus Graph (-50ms to +100ms)...\n');
+% ms_per_frame = 1000 / original_sampling_rate; % Should be 4 ms/frame
+% pre_stim_ms = 100;
+% post_stim_ms = 350;
+% stimulus_frame = round(T / 2); % The "Halfway Point"
+% frames_pre = round(pre_stim_ms / ms_per_frame);
+% frames_post = round(post_stim_ms / ms_per_frame);
+% idx_start = stimulus_frame - frames_pre;
+% idx_end = stimulus_frame + frames_post;
+% if idx_start < 1 || idx_end > T
+%     warning('The requested window (-50ms to +100ms) extends beyond the recording limits.');
+% else
+%     peri_stim_trace = global_trace(idx_start:idx_end);
+%     peri_stim_time = (-frames_pre : frames_post) * ms_per_frame;
+%     figure;
+%     plot(peri_stim_time, peri_stim_trace, 'b', 'LineWidth', 1.5); hold on;
+%     xline(0, '--r', 'Stimulus', 'LabelVerticalAlignment', 'bottom', 'LineWidth', 1);
+%     title('Peri-Stimulus Plot (Halfway Point)');
+%     subtitle(sprintf('Window: -%d ms to +%d ms', pre_stim_ms, post_stim_ms));
+%     xlabel('Time relative to stimulus (ms)');
+%     ylabel('Mean Intensity (Inverted)');
+%     grid on;
+%     axis tight;
+% 
+%     fprintf('✓ Peri-stimulus trace plotted.\n');
+% end
+
+%% ===== DEBUG: PRINT RAW VALUES ACROSS FRAMES =====
+
+% test_frames = 370:385;   % spans your stimulus window
+% num_test = length(test_frames);
+% 
+% % Pick a few meaningful pixels manually
+% pix_list = [
+%     round(H/2), round(W/2);        % center
+%     round(H/2)+10, round(W/2);     % below center
+%     round(H/2), round(W/2)+10      % right of center
+% ];
+% 
+% fprintf('\n=== RAW VALUE DEBUG (M_smooth) ===\n');
+% fprintf('Sampling Rate: %.1f Hz  |  Frame step: %.2f ms\n\n', ...
+%         sampling_rate, 1000/sampling_rate);
+% 
+% for p = 1:size(pix_list,1)
+%     r = pix_list(p,1);
+%     c = pix_list(p,2);
+% 
+%     fprintf('Pixel (%d, %d):\n', r, c);
+%     fprintf('Frame\tTime(ms)\tValue\n');
+% 
+%     base_f = 376;
+% 
+%     for k = 1:num_test
+%         f = test_frames(k);
+%         t_ms = (f - base_f) * (1000/sampling_rate);
+%         val = M_smooth(r, c, f);
+%         fprintf('%d\t%+.1f\t\t%.6f\n', f, t_ms, val);
+%     end
+% 
+%     fprintf('\n');
+% end
 
 %% ===== DEBUG: PRINT A SMALL PATCH ACROSS FRAMES =====
 
-r0 = round(H/2);
-c0 = round(W/2);
-patch_radius = 2;
-
-test_frames = 374:380;
-
-for f = test_frames
-    fprintf('\nFrame %d (%.1f ms):\n', ...
-        f, (f-376)*(1000/sampling_rate));
-    
-    patch = M_smooth(r0-patch_radius:r0+patch_radius, ...
-                     c0-patch_radius:c0+patch_radius, f);
-    
-    disp(patch);
-end
+% r0 = round(H/2);
+% c0 = round(W/2);
+% patch_radius = 2;
+% 
+% test_frames = 374:380;
+% 
+% for f = test_frames
+%     fprintf('\nFrame %d (%.1f ms):\n', ...
+%         f, (f-376)*(1000/sampling_rate));
+% 
+%     patch = M_smooth(r0-patch_radius:r0+patch_radius, ...
+%                      c0-patch_radius:c0+patch_radius, f);
+% 
+%     disp(patch);
+% end

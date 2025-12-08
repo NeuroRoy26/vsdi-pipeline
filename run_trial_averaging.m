@@ -5,9 +5,9 @@ clc; clear; close all;
 %% 1. Define Files and Parameters
 h5_files_to_average = { 
     'data/motion_compensated/led_E0B0_vsd_corrected.h5',  
-     'data/motion_compensated/led_E0B1_vsd_corrected.h5',  
-     'data/motion_compensated/led_E0B2_vsd_corrected.h5',  
-     'data/motion_compensated/led_E0B3_vsd_corrected.h5',  
+     % 'data/motion_compensated/led_E0B1_vsd_corrected.h5',  
+     % 'data/motion_compensated/led_E0B2_vsd_corrected.h5',  
+     % 'data/motion_compensated/led_E0B3_vsd_corrected.h5',  
 };
 num_trials = length(h5_files_to_average);
 
@@ -15,7 +15,7 @@ num_trials = length(h5_files_to_average);
 p.Bin = 1;
 p.Sigma = 1;
 p.MedianWin = 3;
-p.BaselineIdx = 1:100;
+p.BaselineIdx = 38:100;
 p.Dataset = '/functional';
 
 %% 2. Initialize Accumulator
@@ -96,7 +96,9 @@ if trials_processed_count > 0
     fprintf('\nAveraging complete. Total trials included: %d\n', trials_processed_count);
     
     % --- Save the final averaged movie to a NEW HDF5 file ---
-    output_h5_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+    % output_h5_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+    output_h5_file = 'data/preprocessing/led_E0B0_dff_unbinned.h5';
+    
     dataset_name = '/functional_dff';
     
     h5create(output_h5_file, dataset_name, size(average_dff_movie), 'DataType', 'double');

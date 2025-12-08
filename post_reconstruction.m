@@ -63,158 +63,158 @@ end
 
 %% 3b. ADVANCED MODEL-BASED DETRENDING
 % Diagnostic tool for finding the right bleaching curve
-% fprintf('\n--- 3b. RUNNING MODEL COMPARISON FOR BLEACHING ---\n');
-% 
-% % 1. Extract Global Signal
-% % We average the whole movie to find the "Shape" of the bleaching
-% global_trace = squeeze(mean(mean(filtered_movie, 1), 2));
-% t_vec = (1:T)';
-% 
-% % 2. Define "Resting" Frames (The Training Data)
-% % CRITICAL: We must hide the brain activity from the math, or the math 
-% % will think the brain signal is noise and remove it.
-% % Based on your plots: Stimulus is at ~380. 
-% % We use frames 1-370 (Pre-stim) and 700-750 (Recovery/End) to anchor the curve.
-% fit_mask = [1:370, 700:750]; 
-% 
-% y_train = global_trace(fit_mask);
-% x_train = t_vec(fit_mask);
-% 
-% fprintf('Training on %d frames (ignoring stimulus period).\n', length(fit_mask));
-% 
-% % 3. Define Models to Test
-% 
-% % Model A: Linear (Slope)
-% % Equation: y = p1*x + p2
-% [fit_lin, gof_lin] = fit(x_train, y_train, 'poly1');
-% 
-% % Model B: Quadratic (Parabola)
-% % Equation: y = p1*x^2 + p2*x + p3
-% [fit_quad, gof_quad] = fit(x_train, y_train, 'poly2');
-% 
-% % Model C: Exponential (Decay) - The Physics Model
-% % Equation: y = a*exp(b*x) + c
-% % We set start points to help the solver
-% fit_exp_type = fittype('a*exp(b*x) + c');
-% opts = fitoptions(fit_exp_type);
-% opts.StartPoint = [range(y_train), -0.01, mean(y_train)]; 
-% [fit_exp, gof_exp] = fit(x_train, y_train, fit_exp_type, opts);
-% 
-% % 4. Print Metrics Report
-% fprintf('\nModel Competition Results:\n');
-% fprintf('------------------------------------------------------------\n');
-% fprintf('| Model Type    | RMSE (Error) | R-Square (Fit) | Interpretation \n');
-% fprintf('------------------------------------------------------------\n');
-% fprintf('| 1. Linear     | %.6f     | %.4f         | %s\n', ...
-%     gof_lin.rmse, gof_lin.rsquare, 'Simple slope removal');
-% fprintf('| 2. Quadratic  | %.6f     | %.4f         | %s\n', ...
-%     gof_quad.rmse, gof_quad.rsquare, 'catches simple curvature');
-% fprintf('| 3. Exponential| %.6f     | %.4f         | %s\n', ...
-%     gof_exp.rmse, gof_exp.rsquare, 'Physically accurate for Dye');
-% fprintf('------------------------------------------------------------\n');
-% 
-% % 5. Auto-Select Best Model (Based on lowest RMSE)
-% rmse_values = [gof_lin.rmse, gof_quad.rmse, gof_exp.rmse];
-% [~, best_idx] = min(rmse_values);
-% 
-% switch best_idx
-%     case 1
-%         final_model = fit_lin;
-%         fprintf('>>> WINNER: LINEAR Model selected.\n');
-%     case 2
-%         final_model = fit_quad;
-%         fprintf('>>> WINNER: QUADRATIC Model selected.\n');
-%     case 3
-%         final_model = fit_exp;
-%         fprintf('>>> WINNER: EXPONENTIAL Model selected.\n');
-% end
-% 
-% % 6. Generate the Bleaching Curve for all time points
-% bleaching_curve = feval(final_model, t_vec);
-% 
-% % 7. Visualize the Fit (Sanity Check)
-% figure('Name', 'Bleaching Model Fit', 'Color', 'w');
-% plot(t_vec, global_trace, 'k', 'LineWidth', 1.2); hold on;
-% plot(t_vec, bleaching_curve, 'r-', 'LineWidth', 2);
-% xline(370, 'b--', 'Stimulus Start');
-% legend('Global Data', 'Modeled Bleaching', 'Mask Boundary');
-% title(['Selected Model Fit (R^2 = ' num2str(max([gof_lin.rsquare, gof_quad.rsquare, gof_exp.rsquare])) ')']);
-% grid on;
-% 
-% % 8. Subtract the Curve from the Data
-% fprintf('Subtracting modeled bleaching from all pixels...\n');
-% movie_2d = reshape(filtered_movie, H*W, T);
-% detrended_2d = movie_2d - bleaching_curve'; 
-% detrended_movie = reshape(detrended_2d, H, W, T);
-% 
-% fprintf('--- DETRENDING COMPLETE ---\n\n');
+fprintf('\n--- 3b. RUNNING MODEL COMPARISON FOR BLEACHING ---\n');
+
+% 1. Extract Global Signal
+% We average the whole movie to find the "Shape" of the bleaching
+global_trace = squeeze(mean(mean(filtered_movie, 1), 2));
+t_vec = (1:T)';
+
+% 2. Define "Resting" Frames (The Training Data)
+% CRITICAL: We must hide the brain activity from the math, or the math 
+% will think the brain signal is noise and remove it.
+% Based on your plots: Stimulus is at ~380. 
+% We use frames 1-370 (Pre-stim) and 700-750 (Recovery/End) to anchor the curve.
+fit_mask = [1:370, 700:750]; 
+
+y_train = global_trace(fit_mask);
+x_train = t_vec(fit_mask);
+
+fprintf('Training on %d frames (ignoring stimulus period).\n', length(fit_mask));
+
+% 3. Define Models to Test
+
+% Model A: Linear (Slope)
+% Equation: y = p1*x + p2
+[fit_lin, gof_lin] = fit(x_train, y_train, 'poly1');
+
+% Model B: Quadratic (Parabola)
+% Equation: y = p1*x^2 + p2*x + p3
+[fit_quad, gof_quad] = fit(x_train, y_train, 'poly2');
+
+% Model C: Exponential (Decay) - The Physics Model
+% Equation: y = a*exp(b*x) + c
+% We set start points to help the solver
+fit_exp_type = fittype('a*exp(b*x) + c');
+opts = fitoptions(fit_exp_type);
+opts.StartPoint = [range(y_train), -0.01, mean(y_train)]; 
+[fit_exp, gof_exp] = fit(x_train, y_train, fit_exp_type, opts);
+
+% 4. Print Metrics Report
+fprintf('\nModel Competition Results:\n');
+fprintf('------------------------------------------------------------\n');
+fprintf('| Model Type    | RMSE (Error) | R-Square (Fit) | Interpretation \n');
+fprintf('------------------------------------------------------------\n');
+fprintf('| 1. Linear     | %.6f     | %.4f         | %s\n', ...
+    gof_lin.rmse, gof_lin.rsquare, 'Simple slope removal');
+fprintf('| 2. Quadratic  | %.6f     | %.4f         | %s\n', ...
+    gof_quad.rmse, gof_quad.rsquare, 'catches simple curvature');
+fprintf('| 3. Exponential| %.6f     | %.4f         | %s\n', ...
+    gof_exp.rmse, gof_exp.rsquare, 'Physically accurate for Dye');
+fprintf('------------------------------------------------------------\n');
+
+% 5. Auto-Select Best Model (Based on lowest RMSE)
+rmse_values = [gof_lin.rmse, gof_quad.rmse, gof_exp.rmse];
+[~, best_idx] = min(rmse_values);
+
+switch best_idx
+    case 1
+        final_model = fit_lin;
+        fprintf('>>> WINNER: LINEAR Model selected.\n');
+    case 2
+        final_model = fit_quad;
+        fprintf('>>> WINNER: QUADRATIC Model selected.\n');
+    case 3
+        final_model = fit_exp;
+        fprintf('>>> WINNER: EXPONENTIAL Model selected.\n');
+end
+
+% 6. Generate the Bleaching Curve for all time points
+bleaching_curve = feval(final_model, t_vec);
+
+% 7. Visualize the Fit (Sanity Check)
+figure('Name', 'Bleaching Model Fit', 'Color', 'w');
+plot(t_vec, global_trace, 'k', 'LineWidth', 1.2); hold on;
+plot(t_vec, bleaching_curve, 'r-', 'LineWidth', 2);
+xline(370, 'b--', 'Stimulus Start');
+legend('Global Data', 'Modeled Bleaching', 'Mask Boundary');
+title(['Selected Model Fit (R^2 = ' num2str(max([gof_lin.rsquare, gof_quad.rsquare, gof_exp.rsquare])) ')']);
+grid on;
+
+% 8. Subtract the Curve from the Data
+fprintf('Subtracting modeled bleaching from all pixels...\n');
+movie_2d = reshape(filtered_movie, H*W, T);
+detrended_2d = movie_2d - bleaching_curve'; 
+detrended_movie = reshape(detrended_2d, H, W, T);
+
+fprintf('--- DETRENDING COMPLETE ---\n\n');
 
 
 %% 3b. PIXEL-WISE DETRENDING (The "Nuclear Option")
-fprintf('\n--- 3b. RUNNING PIXEL-WISE DETRENDING ---\n');
-fprintf('This fits a unique curve to EVERY pixel. Please wait...\n');
-
-% 1. Setup
-[H, W, T] = size(filtered_movie);
-movie_2d = reshape(filtered_movie, H*W, T); % Reshape to (Pixels x Time)
-detrended_2d = zeros(size(movie_2d));
-
-t_vec = (1:T)';
-% Mask: We use Pre-stim (1-370) and End (700-750) to fit the noise
-fit_mask = [1:374, 400:T]; 
-x_train = t_vec(fit_mask);
-
-% 2. The Loop (Vectorized for speed where possible)
-% We iterate through pixels in chunks to keep it fast/manageable
-num_pixels = H * W;
-chunk_size = 10000; % Process 10k pixels at a time
-
-fprintf('Progress: ');
-for i = 1:chunk_size:num_pixels
-    % Define chunk range
-    idx_end = min(i + chunk_size - 1, num_pixels);
-    chunk_indices = i:idx_end;
-    
-    % Extract data for this chunk
-    % chunk_data is (N_pixels x Time)
-    chunk_data = movie_2d(chunk_indices, :);
-    
-    % Extract only the "Resting" frames for training
-    y_train_chunk = chunk_data(:, fit_mask);
-    
-    % --- MATHEMATICAL TRICK FOR SPEED ---
-    % Instead of running a loop 278,000 times, we use Matrix Algebra.
-    % We fit a parabola (y = ax^2 + bx + c) to all pixels in the chunk at once.
-    % Solves: Y = X * Beta
-    
-    % Design Matrix (Time^2, Time, Constant) for the TRAINING frames
-    X_train = [x_train.^2, x_train, ones(length(x_train), 1)];
-    
-    % Design Matrix for ALL frames (to generate the full curve)
-    X_full = [t_vec.^2, t_vec, ones(T, 1)];
-    
-    % Calculate Betas (Coefficients) for this chunk
-    % Beta = (X'X)^-1 X' Y'
-    % We use the slash operator for stability: Beta = X \ Y'
-    betas = X_train \ y_train_chunk'; 
-    
-    % Generate the drift curves for all time points
-    % Curves = X_full * Betas
-    drift_curves = (X_full * betas)';
-    
-    % Subtract drift from the original data
-    detrended_2d(chunk_indices, :) = chunk_data - drift_curves;
-    
-    % Print a dot every 10%
-    if mod(i, round(num_pixels/10)) < chunk_size
-        fprintf('.');
-    end
-end
-fprintf(' Done!\n');
-
-% 3. Reshape back to Movie
-detrended_movie = reshape(detrended_2d, H, W, T);
-fprintf('--- PIXEL-WISE DETRENDING COMPLETE ---\n\n');
+% fprintf('\n--- 3b. RUNNING PIXEL-WISE DETRENDING ---\n');
+% fprintf('This fits a unique curve to EVERY pixel. Please wait...\n');
+% 
+% % 1. Setup
+% [H, W, T] = size(filtered_movie);
+% movie_2d = reshape(filtered_movie, H*W, T); % Reshape to (Pixels x Time)
+% detrended_2d = zeros(size(movie_2d));
+% 
+% t_vec = (1:T)';
+% % Mask: We use Pre-stim (1-370) and End (700-750) to fit the noise
+% fit_mask = [1:374, 400:T]; 
+% x_train = t_vec(fit_mask);
+% 
+% % 2. The Loop (Vectorized for speed where possible)
+% % We iterate through pixels in chunks to keep it fast/manageable
+% num_pixels = H * W;
+% chunk_size = 10000; % Process 10k pixels at a time
+% 
+% fprintf('Progress: ');
+% for i = 1:chunk_size:num_pixels
+%     % Define chunk range
+%     idx_end = min(i + chunk_size - 1, num_pixels);
+%     chunk_indices = i:idx_end;
+% 
+%     % Extract data for this chunk
+%     % chunk_data is (N_pixels x Time)
+%     chunk_data = movie_2d(chunk_indices, :);
+% 
+%     % Extract only the "Resting" frames for training
+%     y_train_chunk = chunk_data(:, fit_mask);
+% 
+%     % --- MATHEMATICAL TRICK FOR SPEED ---
+%     % Instead of running a loop 278,000 times, we use Matrix Algebra.
+%     % We fit a parabola (y = ax^2 + bx + c) to all pixels in the chunk at once.
+%     % Solves: Y = X * Beta
+% 
+%     % Design Matrix (Time^2, Time, Constant) for the TRAINING frames
+%     X_train = [x_train.^2, x_train, ones(length(x_train), 1)];
+% 
+%     % Design Matrix for ALL frames (to generate the full curve)
+%     X_full = [t_vec.^2, t_vec, ones(T, 1)];
+% 
+%     % Calculate Betas (Coefficients) for this chunk
+%     % Beta = (X'X)^-1 X' Y'
+%     % We use the slash operator for stability: Beta = X \ Y'
+%     betas = X_train \ y_train_chunk'; 
+% 
+%     % Generate the drift curves for all time points
+%     % Curves = X_full * Betas
+%     drift_curves = (X_full * betas)';
+% 
+%     % Subtract drift from the original data
+%     detrended_2d(chunk_indices, :) = chunk_data - drift_curves;
+% 
+%     % Print a dot every 10%
+%     if mod(i, round(num_pixels/10)) < chunk_size
+%         fprintf('.');
+%     end
+% end
+% fprintf(' Done!\n');
+% 
+% % 3. Reshape back to Movie
+% detrended_movie = reshape(detrended_2d, H, W, T);
+% fprintf('--- PIXEL-WISE DETRENDING COMPLETE ---\n\n');
 
 %% 4. ROBUST Z-SCORE NORMALIZATION
 fprintf('4. Applying Robust Z-Score...\n');
