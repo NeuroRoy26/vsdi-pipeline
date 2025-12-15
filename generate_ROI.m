@@ -98,7 +98,7 @@ grid on;
 
 %% 5. SAVE TO FILE
 timestamp = datestr(now, 'yyyymmdd_HHMMSS');
-filename = sprintf('data/ROI_Data_%s.mat', timestamp);
+filename = sprintf('data/ROI_Trace_%s.mat', timestamp);
 
 save(filename, 'roi_mask', 'roi_coords', 'roi_trace', 'activation_map');
 fprintf('\nSuccess! ROI saved as: %s\n', filename);

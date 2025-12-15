@@ -2,23 +2,30 @@
 clear; clc; close all;
 
 %% ========================================================================
-%  USER CALIBRATION SETTINGS (ADJUST THESE TO ALIGN!)
+%  USER CALIBRATION SETTINGS (UPDATED FROM PROTOCOL)
 % ========================================================================
-% 1. SCALING: Controls the size of the MEA grid relative to the image.
-%    If the grid is GIANT, INCREASE this number.
-%    (Example: If your FOV is 10mm wide and image is 500px, res is 20 um/px)
-MICRONS_PER_PIXEL = 14.3; % Try increasing this if grid is too big (e.g. 15, 20, 50)
+% 1. SCALING: 
+% The protocol note says "4.7 um resolution per pixel".
+% However, your image is 540px wide (protocol says camera is 1392px).
+% This suggests your image might be binned (2x or 3x) or cropped.
 
-% 2. ROTATION: Rotates the MEA grid clockwise (in degrees)
-ROTATION_DEG = -30;         
+% START with 4.7. 
+% -> If the grid is WAY too big, try multiplying by 2 (9.4) or 3 (14.1).
+MICRONS_PER_PIXEL = 4.7 *1; 
 
-% 3. POSITIONING: Fine tune the center position (in pixels)
-NUDGE_X_PX = 0;           % + moves grid Right, - moves Left
-NUDGE_Y_PX = 6;           % + moves grid Down,  - moves Up
+% 2. ROTATION: 
+% The MEA is on the right hemisphere. Start at 0 and rotate to align
+% with the electrode "shadows" visible in the background image.
+ROTATION_DEG = 0;         
+
+% 3. POSITIONING: 
+% Use these to center the grid over the trepanation window.
+NUDGE_X_PX = 0;           
+NUDGE_Y_PX = 0;           
 
 % 4. VISUALS
-SIGMA = 2.0;              % Gaussian smoothing for the VSD image
-SATURATION_PCT = 99.0;    % Contrast setting
+SIGMA = 2.0;              
+SATURATION_PCT = 99.0;
 
 %% ========================================================================
 %  1. DATA LOADING (Preserved from your script)

@@ -1,0 +1,89 @@
+%% postprocessing_v1.1.m
+% FILTER_AND_ANALYZE_TRACE.m
+% Loads the global trace file, computes FFT, applies 50Hz Notch, and plots.
+clear; clc; close all;
+
+%% 1. LOAD DATA
+if exist('data', 'dir')
+    start_path = 'data/';
+else
+    start_path = pwd;
+end
+
+fprintf('Please select the global_trace_*.mat file...\n');
+[file_name, file_path] = uigetfile(fullfile(start_path, '*.mat'), 'Select Trace Data');
+
+if isequal(file_name, 0)
+    error('User canceled file selection.');
+else
+    full_file_path = fullfile(file_path, file_name);
+    fprintf('Loading: %s\n', file_name);
+    loaded_struct = load(full_file_path);
+    
+    if isfield(loaded_struct, 'trace_data')
+        data = loaded_struct.trace_data;
+        raw_signal = data.global_trace;
+        Fs = data.sampling_rate;
+        time_ms = data.time_axis_ms;
+    else
+        error('Structure "trace_data" not found in file.');
+    end
+end
+
+fprintf('Signal loaded: %d samples @ %.1f Hz\n', length(raw_signal), Fs);
+
+%% 2. FFT
+L = length(raw_signal);
+Y_raw = fft(raw_signal);
+P2_raw = abs(Y_raw / L);
+P1_raw = P2_raw(1:floor(L/2)+1);
+P1_raw(2:end-1) = 2*P1_raw(2:end-1);
+f = Fs * (0:(L/2)) / L;
+
+%% 3. 50Hz NOTCH FILTER
+notch_freq = 50; % Hz
+bw = 2;
+wo = notch_freq / (Fs/2);  
+bw_norm = bw / (Fs/2);
+fprintf('Applying Notch Filter at %d Hz (Bandwidth: %d Hz)...\n', notch_freq, bw);
+[b, a] = iirnotch(wo, bw_norm);
+clean_signal = filtfilt(b, a, raw_signal);
+
+%% 4. FFT after Filtering (why?, just because..)
+Y_clean = fft(clean_signal);
+P2_clean = abs(Y_clean / L);
+P1_clean = P2_clean(1:floor(L/2)+1);
+P1_clean(2:end-1) = 2*P1_clean(2:end-1);
+
+%% 5. PLOTTING
+figure('Name', 'Filter Analysis', 'Color', 'w', 'Position', [100 100 1200 800]);
+
+% --- Subplot 1: Time Domain Comparison ---
+figure;
+plot(time_ms, raw_signal, 'b', 'LineWidth', 1); hold on;
+title('Raw');
+xlabel('Time (ms)');
+ylabel('Amplitude');
+% legend({'Raw'}, 'Location', 'best');
+grid on; axis tight;
+
+% Zoom in on a section if signal is long (middle 500ms)
+mid_idx = round(L/2);
+range_idx = max(1, mid_idx-100) : min(L, mid_idx+100);
+% xlim([time_ms(range_idx(1)), time_ms(range_idx(end))]); 
+figure;
+plot(time_ms, clean_signal, 'b', 'LineWidth', 1);
+title('Filtered');
+xlabel('Time (ms)');
+ylabel('Amplitude');
+% legend({'Clean'}, 'Location', 'best');
+
+figure;
+plot(f, P1_clean, 'b', 'LineWidth', 1);
+xline(50, 'k');
+title('FFT');
+xlabel('Frequency (Hz)');
+ylabel('Magnitude |P1(f)|');
+legend({'Spectrum'});
+
+fprintf('=== DONE ===\n');

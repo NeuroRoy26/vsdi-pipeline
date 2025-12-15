@@ -1,8 +1,8 @@
 clc; clear; close all;
 
-%%
+%% Setup and Loadin
 % input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
-input_file = 'data/preprocessing/led_E0B0_dff_unbinned.h5';
+input_file = 'data/preprocessing/led_E0B1_dff_unbinned.h5';
 
 dataset_name = '/functional_dff';
 original_sampling_rate = 500; % in Hz (original is ~500.67)
@@ -17,8 +17,7 @@ fprintf('Loaded movie: %d x %d pixels, %d frames (%.2f s)\n', ...
 X = reshape(mov, H*W, T).';
 X(isnan(X)) = 0;
 
-%% ------------------------------------------------------------
-% Spatial filtering
+%%  Spatial filtering *Again*
 fprintf('Spatial smoothing...\n');
 
 temp_mov = reshape(X.', H, W, T); 
@@ -29,8 +28,7 @@ end
 X = reshape(temp_mov, H*W, T).';
 fprintf('Smoothing complete.\n');
 
-%% ------------------------------------------------------------
-% PCA
+%%  PCA
 fprintf('\nRunning PCA...\n');
 [pca_coeff_full, pca_score_full, ~, ~, explained_full] = pca(X, ...
     'Algorithm', 'svd', 'Economy', 'on');
@@ -45,8 +43,7 @@ fprintf('Keeping %d PCs (%.2f%% variance)\n', ...
 pca_tc   = pca_score_full(:, 1:num_components);
 pca_maps = pca_coeff_full(:, 1:num_components);
 
-%% ------------------------------------------------------------
-% Global PSD (actual top-10 PCs)
+%%  Global PSD (actual top-10 PCs)
 fprintf('\nComputing Global PSD (top 10 PCs)...\n');
 
 L = T;
@@ -67,8 +64,7 @@ plot(f, P1_global, 'k', 'LineWidth', 1);
 grid on; xlabel('Frequency (Hz)'); ylabel('Magnitude');
 title('Power Spectral Density (Top 10 PCs)');
 
-%% ------------------------------------------------------------
-% ICA
+%%  ICA
 fprintf('\nRunning FastICA (spatial domain)...\n');
 
 [icasig, A, ~] = fastica(pca_maps', ...
@@ -85,8 +81,7 @@ ica_maps = reshape(ica_maps_flat, H, W, num_ICs);
 
 fprintf('ICA complete. Extracted %d components.\n', num_ICs);
 
-%% ------------------------------------------------------------
-% Metrics + sign correction (fixed bug)
+%% Metrics + sign correction
 fprintf('\nComputing metrics (with sign correction)...\n');
 
 stats = struct();
@@ -95,7 +90,7 @@ for k = 1:num_ICs
     map_flat = ica_maps_flat(:,k);
     tc = ica_timecourses(:,k);
 
-    % sign alignment based on spatial skewness
+     % sign alignment based on spatial skewness
     if skewness(map_flat) < 0
         map_flat = -map_flat;
         tc = -tc;
@@ -128,8 +123,7 @@ end
 
 fprintf('Metrics complete.\n');
 
-%% ------------------------------------------------------------
-% Montage view
+%%  Montage view
 fprintf('\nGenerating Montage View...\n');
 
 grid_cols = ceil(sqrt(num_ICs));
@@ -155,8 +149,7 @@ imagesc(stitched_im); axis image off; colormap jet;
 title(sprintf('Montage of %d ICA Components', num_ICs));
 colorbar;
 
-%% ------------------------------------------------------------
-% % Interactive ICA inspector
+%% Interactive ICA inspector
 % figure('Name', 'ICA Inspector', 'Color', 'w', 'Position', [200 200 1200 500]);
 % fprintf('Go...!\n');
 % 
@@ -180,8 +173,7 @@ colorbar;
 %     waitforbuttonpress;
 % end
 
-%% ------------------------------------------------------------
-% Batch figures
+%%  Batch figures
 fprintf('\nGenerating Inspector Figures...\n');
 
 comps_per_fig = 4;

@@ -1,4 +1,5 @@
-% post_reconstruction_v3.9.m
+% post_reconstruction_v4.m
+% addition of 1D signal extraction code block
 clear; clc; close all;
 fprintf('=== POST-RECONSTRUCTION PROCESSING ===\n\n');
 sign_ass = -1; % chagne to -1 for sign inversion
@@ -464,3 +465,44 @@ end
 %     disp(patch);
 % end
 
+%% =========================================================================
+% SAVE 1D TRACE DATA
+% =========================================================================
+save_choice = input('\nDo you want to save the 1D trace data? (y/n): ', 's');
+if strcmpi(save_choice, 'y') || strcmpi(save_choice, 'yes')
+    fprintf('\nSaving 1D trace data...\n');
+    
+    output_dir = 'data/';
+    if ~exist(output_dir, 'dir')
+        mkdir(output_dir);
+    end
+    
+    timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+    
+    trace_data = struct();
+    trace_data.global_trace = global_trace;
+    trace_data.time_axis_ms = time_axis_ms;
+    trace_data.sampling_rate = original_sampling_rate;
+    trace_data.stimulus_frame = 376;
+    trace_data.processing_params = struct(...
+        'sigma', SIGMA, ...
+        'floor_sensitivity', FLOOR_SENSITIVITY, ...
+        'saturation_pct', SATURATION_PCT, ...
+        'sign_assignment', sign_ass);
+    
+    % Save as .mat file
+    output_filename = fullfile(output_dir, sprintf('global_trace_%s.mat', timestamp));
+    save(output_filename, 'trace_data');
+    fprintf('✓ Saved to: %s\n', output_filename);
+    
+    % % Also save as CSV for easy import into other software
+    % csv_filename = fullfile(output_dir, sprintf('global_trace_%s.csv', timestamp));
+    % csv_table = table(time_axis_ms', global_trace', ...
+    %     'VariableNames', {'Time_ms', 'Mean_Intensity'});
+    % writetable(csv_table, csv_filename);
+    % fprintf('✓ CSV saved to: %s\n', csv_filename);
+    
+    fprintf('\n=== TRACE DATA SAVED SUCCESSFULLY ===\n');
+else
+    fprintf('\nTrace data not saved.\n');
+end

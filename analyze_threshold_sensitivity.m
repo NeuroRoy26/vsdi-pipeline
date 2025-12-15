@@ -1,19 +1,13 @@
 clc; clear; close all;
 % -----------------------------------------------------------------
 %    analyze_threshold_sensitivity_OPTIMIZED.m
-% -----------------------------------------------------------------
-% Optimized version that processes multipliers sequentially
-% and saves directly to HDF5 to avoid memory overflow
-% -----------------------------------------------------------------
-
-clear all; close all; clc;
 
 %% 1. Load the Averaged dF/F Movie
 fprintf('========================================\n');
 fprintf('THRESHOLD SENSITIVITY ANALYSIS (OPTIMIZED)\n');
 fprintf('========================================\n\n');
 
-input_h5_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+input_h5_file = 'data/preprocessing/led_E0B0_dff_unbinned.h5';
 fprintf('Loading averaged dF/F movie from: %s\n', input_h5_file);
 
 try

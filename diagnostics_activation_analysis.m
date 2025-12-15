@@ -20,7 +20,7 @@
 clearvars; close all; clc;
 
 %% --------- User parameters ---------
-dff_file     = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+dff_file     = 'data/preprocessing/led_E0B0_dff_unbinned.h5';
 dff_dataset  = '/functional_dff';
 mask3_file   = 'data/activation_mask_3x.h5';
 mask4_file   = 'data/activation_mask_4x.h5';
@@ -82,36 +82,36 @@ pct3 = squeeze(sum(sum(mask3,1),2)) / total_pixels * 100;  % Tx1
 pct4 = squeeze(sum(sum(mask4,1),2)) / total_pixels * 100;
 
 %% Motion proxy: frame-to-frame sum absolute difference
-frame_diff = zeros(T-1,1);
-for t=2:T
-    frame_diff(t-1) = sum(abs(dff_resh(:,t) - dff_resh(:,t-1)), 'all'); 
-end
-% normalize for plotting
-frame_diff_z = (frame_diff - median(frame_diff)) / (1.4826*mad(frame_diff,1)); % robust z
+% frame_diff = zeros(T-1,1);
+% for t=2:T
+%     frame_diff(t-1) = sum(abs(dff_resh(:,t) - dff_resh(:,t-1)), 'all'); 
+% end
+% % normalize for plotting
+% frame_diff_z = (frame_diff - median(frame_diff)) / (1.4826*mad(frame_diff,1)); % robust z
 
 %% Basic plots: global timecourses + percent active
 f1 = figure('Name','Global Timecourses and Percent Active','Position',[100 100 1400 800]);
-subplot(3,1,1);
-plot(1:T, mean_t, '-k','LineWidth',1.4); hold on;
-plot(1:T, running_mean, '-r','LineWidth',1.4);
-ylabel('Global mean dF/F'); legend('mean','running mean');
-title('Global mean dF/F (black) and running mean (red)');
+% subplot(3,1,1);
+% plot(1:T, mean_t, '-k','LineWidth',1.4); hold on;
+% plot(1:T, running_mean, '-r','LineWidth',1.4);
+% ylabel('Global mean dF/F'); legend('mean','running mean');
+% title('Global mean dF/F (black) and running mean (red)');
 
-subplot(3,1,2);
-plot(1:T, std_t, '-k','LineWidth',1.2); hold on;
-plot(1:T, running_std, '-r','LineWidth',1.2);
+subplot(2,1,1);
+plot(((0:T-1)*(1000/250)), std_t, '-k','LineWidth',1.2); hold on;
+plot(((0:T-1)*(1000/250)), running_std, '-r','LineWidth',1.2);
 ylabel('Global std dF/F'); legend('std','running std');
 
-subplot(3,1,3);
-yyaxis left
-plot(1:T, pct3, '-','LineWidth',1.6,'Color',[0.85 0.33 0.10]); hold on;
-plot(1:T, pct4, '-','LineWidth',1.6,'Color',[0 0.5 0]);
-ylabel('Percent active (%)');
-yyaxis right
-plot(1:T-1, frame_diff_z, '-','LineWidth',1.2,'Color',[0.2 0.6 0.9]);
-ylabel('Frame diff (robust z)');
-xlabel('Frame');
-legend('3x pct','4x pct','frame-diff z','Location','northwest');
+subplot(2,1,2);
+% yyaxis left
+plot(((0:T-1)*(1000/250)), pct3, '-','LineWidth',1.6,'Color',[0.85 0.33 0.10]); hold on;
+% plot(1:T, pct4, '-','LineWidth',1.6,'Color',[0 0.5 0]);
+ylabel('Active Pixel (%)');
+% yyaxis right
+% plot(1:T-1, frame_diff_z, '-','LineWidth',1.2,'Color',[0.2 0.6 0.9]);
+% ylabel('Frame diff (robust z)');
+xlabel('Time (ms)');
+legend('E0B0','Location','northwest');
 
 saveas(f1, fullfile(out_dir_figs,'global_timecourses_pct_active.png'));
 
