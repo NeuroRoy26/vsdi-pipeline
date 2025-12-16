@@ -62,6 +62,10 @@ end
 
 fprintf('Signal loaded: %d samples @ %.1f Hz\n', length(raw_signal), Fs);
 
+%% Sign inversion
+% raw_signal = -1 * raw_signal;
+Fs = 500.67;
+xlineat = 1450;
 %% 2. FFT
 L = length(raw_signal);
 Y_raw = fft(raw_signal);
@@ -70,16 +74,41 @@ P1_raw = P2_raw(1:floor(L/2)+1);
 P1_raw(2:end-1) = 2*P1_raw(2:end-1);
 f = Fs * (0:(L/2)) / L;
 
-%% 3. 50Hz NOTCH FILTER
-notch_freq = 0.3; % Hz
-bw = 10;
-wo = notch_freq / (Fs/2);  
-bw_norm = bw / (Fs/2);
-fprintf('Applying Notch Filter at %d Hz (Bandwidth: %d Hz)...\n', notch_freq, bw);
-[b, a] = iirnotch(wo, bw_norm);
-clean_signal = filtfilt(b, a, raw_signal);
+%% 3. 50Hz FILTER
+% notch_freq = 50; % Hz
+% bw = 2;
+% wo = notch_freq / (Fs/2);  
+% bw_norm = bw / (Fs/2);
+% fprintf('Applying Notch Filter at %d Hz (Bandwidth: %d Hz)...\n', notch_freq, bw);
+% [b, a] = iirnotch(wo, bw_norm);
+% notched_signal = filtfilt(b, a, raw_signal);
 
-%% 4. FFT after Filtering (why?, just because..)
+%% HIGH-PASS & LOW-PASS
+% filtered_signal = notched_signal;
+filtered_signal = raw_signal;
+filter_order     = 4;    
+high_pass_cutoff = 0.1;  
+low_pass_cutoff  = 35; 
+fprintf('Applying High-Pass Filter (> %.1f Hz)...\n', high_pass_cutoff);
+fnorm = high_pass_cutoff / (Fs/2); % Normalize to Nyquist
+[b_high, a_high] = butter(filter_order, fnorm, 'high');
+filtered_signal = filtfilt(b_high, a_high, filtered_signal);
+
+fprintf('Applying Low-Pass Filter (< %.1f Hz)...\n', low_pass_cutoff);
+fnorm = low_pass_cutoff / (Fs/2); % Normalize to Nyquist
+[b_low, a_low] = butter(filter_order, fnorm, 'low');
+filtered_signal = filtfilt(b_low, a_low, filtered_signal);
+
+clean_signal_A = filtered_signal;
+
+%% Bandpass
+nyquist_freq = Fs / 2;
+Wn = [high_pass_cutoff, low_pass_cutoff] / nyquist_freq;
+fprintf('Applying Bandpass Filter (%.1f Hz to %.1f Hz)...\n', high_pass_cutoff, low_pass_cutoff);
+[b_band, a_band] = butter(filter_order, Wn, 'bandpass');
+clean_signal = filtfilt(b_band, a_band, raw_signal);
+
+%% 4. FFT after filtering
 Y_clean = fft(clean_signal);
 P2_clean = abs(Y_clean / L);
 P1_clean = P2_clean(1:floor(L/2)+1);
@@ -93,24 +122,59 @@ title('Raw');
 xlabel('Time (ms)');
 ylabel('Amplitude');
 % legend({'Raw'}, 'Location', 'best');
-grid on; axis tight;
-
+% grid on; axis tight;
 % mid_idx = round(L/2);
 % range_idx = max(1, mid_idx-100) : min(L, mid_idx+100);
 % xlim([time_ms(range_idx(1)), time_ms(range_idx(end))]); 
+xline(xlineat, '--r');
+
 subplot(2,1,2);
 plot(time_ms, clean_signal, 'b', 'LineWidth', 1);
 title('Filtered');
 xlabel('Time (ms)');
 ylabel('Amplitude');
+% grid on; axis tight;
+% mid_idx = round(L/2);
+% range_idx = max(1, mid_idx-100) : min(L, mid_idx+100);
+% xlim([time_ms(range_idx(1)), time_ms(range_idx(end))]); 
 % legend({'Clean'}, 'Location', 'best');
+% xline(mid_idx * (1000/Fs), '--r');
+xline(xlineat, '--r');
 
+% figure('Position', [100 100 1200 800]);
+% plot(f, P1_clean, 'b', 'LineWidth', 1);
+% xline(50, '--k');
+% title('FFT');
+% xlabel('Frequency (Hz)');
+% ylabel('Magnitude |P1(f)|');
+% legend({'Spectrum'});
+
+% figure('Position', [100 100 1200 800]);
+% plot(time_ms, clean_signal_A, 'k', 'LineWidth', 1);
+% title('Filtered');
+% xlabel('Time (ms)');
+% ylabel('Amplitude');
+% grid on; axis tight;
+% mid_idx = round(L/2);
+% range_idx = max(1, mid_idx-100) : min(L, mid_idx+100);
+% xlim([time_ms(range_idx(1)), time_ms(range_idx(end))]); 
+% xl= xline(xlineat, '--r', '1450 ms');
+% xl.LabelVerticalAlignment = 'bottom';
+% xline(1500, '--c');
+% legend({'VSD', 'Assummed Stimulus', 'Stimulus'});
+
+stimulus_ms = 700; 
+time_shifted = time_ms - xlineat;
 figure('Position', [100 100 1200 800]);
-plot(f, P1_clean, 'b', 'LineWidth', 1);
-xline(50, 'k');
-title('FFT');
-xlabel('Frequency (Hz)');
-ylabel('Magnitude |P1(f)|');
-legend({'Spectrum'});
+plot(time_shifted, clean_signal_A, 'k', 'LineWidth', 1);
+title('Filtered');
+xlabel('Time (ms)');
+ylabel('Amplitude');
+grid on; 
+axis tight;
+xlim([-stimulus_ms, stimulus_ms]);
+xl = xline(0, '--r', '0 ms (1450 ms)');
+xl.LabelVerticalAlignment = 'bottom';
+xline(1500 - xlineat, '--c');
 
 fprintf('=== DONE ===\n');
