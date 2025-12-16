@@ -36,7 +36,9 @@ end
 [H, W, T] = size(M);
 fprintf('Data: %d x %d pixels, %d frames (%.1f Hz)\n', H, W, T, sampling_rate);
 
-input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+% input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
+input_file = 'data/motion_compensated_1000/led_E0B0_vsd_corrected.h5';
+
 dataset_name = '/structural';
 structural_rgb = [];
 

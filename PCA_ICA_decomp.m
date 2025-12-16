@@ -2,10 +2,11 @@ clc; clear; close all;
 
 %% Setup and Loadin
 % input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
-input_file = 'data/preprocessing/led_E0B1_dff_unbinned.h5';
+% input_file = 'data/preprocessing/led_E0B1_dff_unbinned.h5';
+% input_file = 'data/preprocessing/led_1000_E0B0.h5';
 
 dataset_name = '/functional_dff';
-original_sampling_rate = 500; % in Hz (original is ~500.67)
+original_sampling_rate = 500; % in Hz (500.67 or 1001.67)
 Fs = original_sampling_rate / 2;   % interleaved frames → half rate
 
 mov = h5read(input_file, dataset_name);

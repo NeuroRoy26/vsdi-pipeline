@@ -64,8 +64,10 @@ fprintf('Signal loaded: %d samples @ %.1f Hz\n', length(raw_signal), Fs);
 
 %% Sign inversion
 % raw_signal = -1 * raw_signal;
-Fs = 500.67;
-xlineat = 1450;
+% Fs = 500.67;
+Fs = 1001.67;
+xlineat = 1500;
+
 %% 2. FFT
 L = length(raw_signal);
 Y_raw = fft(raw_signal);
@@ -87,19 +89,19 @@ f = Fs * (0:(L/2)) / L;
 % filtered_signal = notched_signal;
 filtered_signal = raw_signal;
 filter_order     = 4;    
-high_pass_cutoff = 0.1;  
+high_pass_cutoff = 0.1;  % 0.1 Hz or 4Hz, run and decide which is better
 low_pass_cutoff  = 35; 
-fprintf('Applying High-Pass Filter (> %.1f Hz)...\n', high_pass_cutoff);
-fnorm = high_pass_cutoff / (Fs/2); % Normalize to Nyquist
-[b_high, a_high] = butter(filter_order, fnorm, 'high');
-filtered_signal = filtfilt(b_high, a_high, filtered_signal);
-
-fprintf('Applying Low-Pass Filter (< %.1f Hz)...\n', low_pass_cutoff);
-fnorm = low_pass_cutoff / (Fs/2); % Normalize to Nyquist
-[b_low, a_low] = butter(filter_order, fnorm, 'low');
-filtered_signal = filtfilt(b_low, a_low, filtered_signal);
-
-clean_signal_A = filtered_signal;
+% fprintf('Applying High-Pass Filter (> %.1f Hz)...\n', high_pass_cutoff);
+% fnorm = high_pass_cutoff / (Fs/2); % Normalize to Nyquist
+% [b_high, a_high] = butter(filter_order, fnorm, 'high');
+% filtered_signal = filtfilt(b_high, a_high, filtered_signal);
+% 
+% fprintf('Applying Low-Pass Filter (< %.1f Hz)...\n', low_pass_cutoff);
+% fnorm = low_pass_cutoff / (Fs/2); % Normalize to Nyquist
+% [b_low, a_low] = butter(filter_order, fnorm, 'low');
+% filtered_signal = filtfilt(b_low, a_low, filtered_signal);
+% 
+% clean_signal_A = filtered_signal;
 
 %% Bandpass
 nyquist_freq = Fs / 2;
@@ -166,15 +168,15 @@ xline(xlineat, '--r');
 stimulus_ms = 700; 
 time_shifted = time_ms - xlineat;
 figure('Position', [100 100 1200 800]);
-plot(time_shifted, clean_signal_A, 'k', 'LineWidth', 1);
+plot(time_shifted, clean_signal, 'k', 'LineWidth', 1);
 title('Filtered');
 xlabel('Time (ms)');
 ylabel('Amplitude');
 grid on; 
 axis tight;
-xlim([-stimulus_ms, stimulus_ms]);
-xl = xline(0, '--r', '0 ms (1450 ms)');
+labelStr = sprintf('0 ms (%d ms)', xlineat);
+xl = xline(0, '--r', labelStr);
 xl.LabelVerticalAlignment = 'bottom';
-xline(1500 - xlineat, '--c');
+% xline(1500 - xlineat, '--c');
 
 fprintf('=== DONE ===\n');

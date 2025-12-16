@@ -5,9 +5,11 @@ clc; clear; close all;
 %% 1. Define Files and Parameters
 h5_files_to_average = { 
     % 'data/motion_compensated/led_E0B0_vsd_corrected.h5',  
-     'data/motion_compensated/led_E0B1_vsd_corrected.h5',  
+     % 'data/motion_compensated/led_E0B1_vsd_corrected.h5',  
      % 'data/motion_compensated/led_E0B2_vsd_corrected.h5',  
      % 'data/motion_compensated/led_E0B3_vsd_corrected.h5',  
+     % 'data/motion_compensated_1000/led_E0B0_vsd_corrected.h5',  
+     
 };
 num_trials = length(h5_files_to_average);
 
@@ -97,7 +99,7 @@ if trials_processed_count > 0
     
     % --- Save the final averaged movie to a NEW HDF5 file ---
     % output_h5_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
-    output_h5_file = 'data/preprocessing/led_E0B1_dff_unbinned.h5';
+    output_h5_file = 'data/preprocessing/led_1000_E0B0.h5';
     
     dataset_name = '/functional_dff';
     
