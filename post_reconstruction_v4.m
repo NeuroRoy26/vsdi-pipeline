@@ -37,27 +37,59 @@ end
 fprintf('Data: %d x %d pixels, %d frames (%.1f Hz)\n', H, W, T, sampling_rate);
 
 % input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
-input_file = 'data/motion_compensated_1000/led_E0B0_vsd_corrected.h5';
+% input_file = 'data/motion_compensated_1000/led_E0B0_vsd_corrected.h5';
+% 
+% dataset_name = '/structural';
+% structural_rgb = [];
+% 
+% if exist(input_file, 'file')
+%     try
+%         fprintf('Loading structural movie from: %s\n', input_file);
+%         mov_struct = h5read(input_file, dataset_name);
+%         bg = mean(mov_struct, 3);
+%         bg = double(bg);
+%         bg_norm = (bg - min(bg(:))) / (max(bg(:)) - min(bg(:)));
+%         structural_rgb = cat(3, bg_norm, bg_norm, bg_norm);
+%         fprintf('✓ Structural background converted to RGB.\n');
+%     catch
+%         fprintf('! Warning: Structural load failed. Using black background.\n');
+%     end
+% else
+%     fprintf('! Warning: Structural file not found. Using black background.\n');
+% end
 
+if exist('loaded_data', 'var') && isfield(loaded_data, 'input_file')
+    input_file = loaded_data.input_file;
+elseif ~exist('input_file', 'var')
+    input_file = ''; 
+end
 dataset_name = '/structural';
 structural_rgb = [];
-
-if exist(input_file, 'file')
+if ~isempty(input_file) && exist(input_file, 'file')
     try
-        fprintf('Loading structural movie...\n');
+        fprintf('Loading structural movie from: %s\n', input_file);
         mov_struct = h5read(input_file, dataset_name);
         bg = mean(mov_struct, 3);
         bg = double(bg);
-        bg_norm = (bg - min(bg(:))) / (max(bg(:)) - min(bg(:)));
+        bg_min = min(bg(:));
+        bg_max = max(bg(:));
+        if bg_max > bg_min
+            bg_norm = (bg - bg_min) / (bg_max - bg_min);
+        else
+            bg_norm = bg; % Avoid NaN if image is flat
+        end
         structural_rgb = cat(3, bg_norm, bg_norm, bg_norm);
         fprintf('✓ Structural background converted to RGB.\n');
-    catch
-        fprintf('! Warning: Structural load failed. Using black background.\n');
+    catch ME
+        fprintf('! Warning: Structural load failed.\nError: %s\n', ME.message);
     end
 else
-    fprintf('! Warning: Structural file not found. Using black background.\n');
+    if isempty(input_file)
+        fprintf('! Warning: No input filename found in metadata.\n');
+    else
+        fprintf('! Warning: Original source file not found at: %s\n', input_file);
+    end
 end
-
 %% =========================================================================
 % --- SETTINGS & PROCESSING ---
 % =========================================================================
@@ -470,6 +502,45 @@ end
 %% =========================================================================
 % SAVE 1D TRACE DATA
 % =========================================================================
+% save_choice = input('\nDo you want to save the 1D trace data? (y/n): ', 's');
+% if strcmpi(save_choice, 'y') || strcmpi(save_choice, 'yes')
+%     fprintf('\nSaving 1D trace data...\n');
+% 
+%     output_dir = 'data/';
+%     if ~exist(output_dir, 'dir')
+%         mkdir(output_dir);
+%     end
+% 
+%     timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+% 
+%     trace_data = struct();
+%     trace_data.global_trace = global_trace;
+%     trace_data.time_axis_ms = time_axis_ms;
+%     trace_data.sampling_rate = original_sampling_rate;
+%     trace_data.stimulus_frame = 376;
+%     trace_data.processing_params = struct(...
+%         'sigma', SIGMA, ...
+%         'floor_sensitivity', FLOOR_SENSITIVITY, ...
+%         'saturation_pct', SATURATION_PCT, ...
+%         'sign_assignment', sign_ass);
+% 
+%     % Save as .mat file
+%     output_filename = fullfile(output_dir, sprintf('global_trace_%s.mat', timestamp));
+%     save(output_filename, 'trace_data');
+%     fprintf('✓ Saved to: %s\n', output_filename);
+% 
+%     % % Also save as CSV for easy import into other software
+%     % csv_filename = fullfile(output_dir, sprintf('global_trace_%s.csv', timestamp));
+%     % csv_table = table(time_axis_ms', global_trace', ...
+%     %     'VariableNames', {'Time_ms', 'Mean_Intensity'});
+%     % writetable(csv_table, csv_filename);
+%     % fprintf('✓ CSV saved to: %s\n', csv_filename);
+% 
+%     fprintf('\n=== TRACE DATA SAVED SUCCESSFULLY ===\n');
+% else
+%     fprintf('\nTrace data not saved.\n');
+% end
+
 save_choice = input('\nDo you want to save the 1D trace data? (y/n): ', 's');
 if strcmpi(save_choice, 'y') || strcmpi(save_choice, 'yes')
     fprintf('\nSaving 1D trace data...\n');
@@ -478,8 +549,13 @@ if strcmpi(save_choice, 'y') || strcmpi(save_choice, 'yes')
     if ~exist(output_dir, 'dir')
         mkdir(output_dir);
     end
-    
-    timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+    default_suffix = datestr(now, 'yyyymmdd_HHMMSS');
+    user_suffix = input(sprintf('Enter filename suffix (default: "%s"): ', default_suffix), 's');
+    if isempty(user_suffix)
+        final_suffix = default_suffix;
+    else
+        final_suffix = user_suffix;
+    end
     
     trace_data = struct();
     trace_data.global_trace = global_trace;
@@ -491,20 +567,8 @@ if strcmpi(save_choice, 'y') || strcmpi(save_choice, 'yes')
         'floor_sensitivity', FLOOR_SENSITIVITY, ...
         'saturation_pct', SATURATION_PCT, ...
         'sign_assignment', sign_ass);
-    
-    % Save as .mat file
-    output_filename = fullfile(output_dir, sprintf('global_trace_%s.mat', timestamp));
+
+    output_filename = fullfile(output_dir, sprintf('global_trace_%s.mat', final_suffix));
     save(output_filename, 'trace_data');
     fprintf('✓ Saved to: %s\n', output_filename);
-    
-    % % Also save as CSV for easy import into other software
-    % csv_filename = fullfile(output_dir, sprintf('global_trace_%s.csv', timestamp));
-    % csv_table = table(time_axis_ms', global_trace', ...
-    %     'VariableNames', {'Time_ms', 'Mean_Intensity'});
-    % writetable(csv_table, csv_filename);
-    % fprintf('✓ CSV saved to: %s\n', csv_filename);
-    
-    fprintf('\n=== TRACE DATA SAVED SUCCESSFULLY ===\n');
-else
-    fprintf('\nTrace data not saved.\n');
 end

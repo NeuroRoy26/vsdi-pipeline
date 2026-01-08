@@ -5,8 +5,36 @@ clc; clear; close all;
 % input_file = 'data/preprocessing/led_E0B1_dff_unbinned.h5';
 % input_file = 'data/preprocessing/led_1000_E0B0.h5';
 
+%= UI for File Selector
+[fName, fPath] = uigetfile('*.h5', 'Select H5 File');
+if isequal(fName, 0)
+    disp('User canceled file selection.');
+    input_file = ''; % Handle empty case
+else
+    input_file = fullfile(fPath, fName);
+    fprintf('Selected: %s\n', input_file);
+end
+%=
+
 dataset_name = '/functional_dff';
-original_sampling_rate = 500; % in Hz (500.67 or 1001.67)
+% dataset_name = '/functional';
+
+% original_sampling_rate = 500; % in Hz (500.67 or 1001.67)
+%= added UI for Sampl rate choosing
+fprintf('Select Sampling Rate:\n 1) 500 Hz\n 2) 1000 Hz\n 3) Custom\n');
+choice = input('Enter your choice (1, 2, or 3): ');
+switch choice
+    case 1
+        original_sampling_rate = 500;
+    case 2
+        original_sampling_rate = 1000;
+    case 3
+        original_sampling_rate = input('Enter custom sampling rate (Hz): ');
+    otherwise
+        error('Invalid selection. Please run the script again and choose 1, 2, or 3.');
+end
+fprintf('Sampling rate set to: %.2f Hz\n', original_sampling_rate);
+%=
 Fs = original_sampling_rate / 2;   % interleaved frames → half rate
 
 mov = h5read(input_file, dataset_name);

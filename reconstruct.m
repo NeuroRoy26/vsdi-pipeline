@@ -160,26 +160,45 @@ title('Removed Signal');
 
 %% ------------------------------------------------------------
 % 8. Save movie
+% fprintf('\n--- SAVE OPTIONS ---\n');
+% save_choice = input('Save reconstructed movie? (y/n): ','s');
+% 
+% if strcmpi(save_choice,'y')
+%     ic_string = sprintf('%d_', selected_ICs);
+%     ic_string = ic_string(1:end-1);
+% 
+%     % FIX: Create data directory if it doesn't exist
+%     if ~exist('data', 'dir')
+%         mkdir('data');
+%     end
+% 
+%     outfile = sprintf('data/reconstructed_ICs_%s.mat', ic_string);
+% 
+%     save(outfile,'reconstructed_movie','selected_ICs',...
+%         'H','W','T','Fs','variance_explained');
+% 
+%     fprintf('Saved to: %s\n', outfile);
+% end
 fprintf('\n--- SAVE OPTIONS ---\n');
-save_choice = input('Save reconstructed movie? (y/n): ','s');
-
-if strcmpi(save_choice,'y')
-    ic_string = sprintf('%d_', selected_ICs);
-    ic_string = ic_string(1:end-1);
-    
-    % FIX: Create data directory if it doesn't exist
+save_choice = input('Save reconstructed movie? (y/n): ', 's');
+if strcmpi(save_choice, 'y')
+    default_suffix = sprintf('%d_', selected_ICs);
+    default_suffix = default_suffix(1:end-1); 
+    user_suffix = input(sprintf('Enter filename suffix (default: "%s"): ', default_suffix), 's');
+    if isempty(user_suffix)
+        final_suffix = default_suffix;
+    else
+        final_suffix = user_suffix;
+    end
     if ~exist('data', 'dir')
         mkdir('data');
     end
-    
-    outfile = sprintf('data/reconstructed_ICs_%s.mat', ic_string);
-
-    save(outfile,'reconstructed_movie','selected_ICs',...
-        'H','W','T','Fs','variance_explained');
-
+    outfile = sprintf('data/reconstructed_ICs_%s.mat', final_suffix);
+    save(outfile, 'reconstructed_movie', 'selected_ICs', ...
+        'H', 'W', 'T', 'Fs', 'variance_explained', 'input_file');
     fprintf('Saved to: %s\n', outfile);
+    fprintf('Metadata saved: Linked to source file "%s"\n', input_file);
 end
-
 %% ------------------------------------------------------------
 % 9. Component contribution analysis (vectorized)
 fprintf('\n--- COMPONENT CONTRIBUTIONS ---\n');
