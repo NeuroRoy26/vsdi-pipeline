@@ -88,7 +88,7 @@ P1_raw(2:end-1) = 2*P1_raw(2:end-1);
 f = Fs * (0:(L/2)) / L;
 
 %% 4. FILTERING
-% 50Hz FILTER (Commented out in original)
+% 50Hz FILTER 
 % notch_freq = 50; % Hz
 % bw = 2;
 % wo = notch_freq / (Fs/2);  
@@ -102,7 +102,7 @@ f = Fs * (0:(L/2)) / L;
 filtered_signal = raw_signal;
 filter_order     = 4;    
 high_pass_cutoff = 0.1;  
-low_pass_cutoff  = 35; 
+low_pass_cutoff  = 120; %35, 55, 75, 120
 
 % Bandpass Implementation
 nyquist_freq = Fs / 2;

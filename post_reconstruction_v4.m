@@ -94,7 +94,7 @@ end
 % --- SETTINGS & PROCESSING ---
 % =========================================================================
 SIGMA = 2.0; 
-FLOOR_SENSITIVITY = 0.45;
+FLOOR_SENSITIVITY = 0.0;
 SATURATION_PCT = 98.5;
 
 % CHANGE: Back to 'jet' for that classic Red/Blue look
@@ -126,7 +126,7 @@ rows = 4; cols = 8;
 
 figure('Name', 'Montage', 'Color', 'w', 'Position', [10 10 1600 900]);
 
-try, cmap = feval(CHOSEN_CMAP, 256); catch, cmap = jet(256); end
+try cmap = feval(CHOSEN_CMAP, 256); catch, cmap = jet(256); end
 
 for k = 1:num_frames
     frame_idx = start_f + k - 1;
