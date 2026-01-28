@@ -1,6 +1,8 @@
 function output_file = vsd_motion_correct(input_h5_path, varargin)
 % Full-pipeline VSD motion correction with automatic structural/functional detection.
+% assumes your input to be raw .h5 files converted from .blk files
 % Output file name is derived from the input file name + "_vsd_corrected.h5".
+% See vsd_batch_runner.m for batch motion compensation
 % Usage:
 %   vsd_motion_correct('file.h5', ...
 %       'DatasetName','image_stack', ...
@@ -8,6 +10,8 @@ function output_file = vsd_motion_correct(input_h5_path, varargin)
 %       'ReferenceFrames',80:200, ...
 %       'FlowRegistrationPath','C:/flow_registration-main', ...
 %       'OF', struct(...));
+% **SUPER IMPORTANT**= make sure the flow_registration toolbox is configured
+% note =displacement_fields output file (w.h5) are overwritten (change file name to preserve)
 %% Parse inputs
 p = inputParser;
 addRequired(p, 'input_h5_path', @(s)ischar(s) || isstring(s));
@@ -303,7 +307,7 @@ if exist(stats_file,'file')
 end
 cleanup_temp(temp_file);
 fprintf('Done.\n');
-end % function
+% end % function
 %% --- helpers ---
 function out = getfield_safe(s, name, default)
     if isfield(s, name)
@@ -329,4 +333,6 @@ function r = ternary(cond, a, b)
     else
         r = b;
     end
+end
+fprintf('Run single_trial or trial_averaging script after this\n');
 end

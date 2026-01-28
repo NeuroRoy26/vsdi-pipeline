@@ -1,6 +1,6 @@
 function vsd_batch_runner()
 % VSD_BATCH_RUNNER
-% Selects multiple HDF5 files and runs vsd_motion_correct on them
+% Selects multiple HDF5 files and runs vsd_motion_correct.m on them
 % using the specific protocol defined below.
 
     %% 1. Define Your Protocol Here

@@ -1,5 +1,5 @@
 % ICA_reconstruct.m
-
+% run after PCA_ICA_decomp.m
 fprintf('=== ICA RECONSTRUCTION SCRIPT ===\n\n');
 sign_ass = -1; % chagne to -1 for sign inversion
 %% ------------------------------------------------------------

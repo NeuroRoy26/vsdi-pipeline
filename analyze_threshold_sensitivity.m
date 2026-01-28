@@ -7,7 +7,7 @@ fprintf('========================================\n');
 fprintf('THRESHOLD SENSITIVITY ANALYSIS (OPTIMIZED)\n');
 fprintf('========================================\n\n');
 
-input_h5_file = 'data/preprocessing/led_E0B0_dff_unbinned.h5';
+input_h5_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
 fprintf('Loading averaged dF/F movie from: %s\n', input_h5_file);
 
 try
@@ -20,7 +20,7 @@ end
 
 %% 2. Define Binned Baseline Period
 bin_size = 1;
-raw_baseline_frames = 100;
+raw_baseline_frames = 700;
 binned_baseline_end = floor(raw_baseline_frames / bin_size);
 
 fprintf('\nDefining binned baseline period...\n');

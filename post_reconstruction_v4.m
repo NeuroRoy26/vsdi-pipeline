@@ -1,4 +1,4 @@
-% post_reconstruction_v4.m
+% post_reconstruction_v24.m
 % addition of 1D signal extraction code block
 clear; clc; close all;
 fprintf('=== POST-RECONSTRUCTION PROCESSING ===\n\n');

@@ -1,5 +1,6 @@
 clc; clear; close all;
-
+% runs on dff calculated files
+% see run_trial_averaging,m for info
 %% Setup and Loadin
 % input_file = 'data/averaged_movie_E0B0-B3_unbinned.h5';
 % input_file = 'data/preprocessing/led_E0B1_dff_unbinned.h5';
@@ -88,10 +89,10 @@ for k = 1:n_psd
     P1_global = P1_global + P1;
 end
 
-figure('Name', 'Global Power Spectral Density', 'Color', 'w');
-plot(f, P1_global, 'k', 'LineWidth', 1);
-grid on; xlabel('Frequency (Hz)'); ylabel('Magnitude');
-title('Power Spectral Density (Top 10 PCs)');
+% figure('Name', 'Global Power Spectral Density', 'Color', 'w');
+% plot(f, P1_global, 'k', 'LineWidth', 1);
+% grid on; xlabel('Frequency (Hz)'); ylabel('Magnitude');
+% title('Power Spectral Density (Top 10 PCs)');
 
 %%  ICA
 fprintf('\nRunning FastICA (spatial domain)...\n');
@@ -159,24 +160,24 @@ grid_cols = ceil(sqrt(num_ICs));
 grid_rows = ceil(num_ICs / grid_cols);
 stitched_im = zeros(grid_rows * H, grid_cols * W);
 
-for k = 1:num_ICs
-    [r_idx, c_idx] = ind2sub([grid_rows, grid_cols], k);
-
-    this_map = ica_maps(:,:,k);
-    clim = [prctile(this_map(:), 1) prctile(this_map(:), 99)];
-
-    this_map = max(min(this_map, clim(2)), clim(1));
-    this_map = (this_map - clim(1)) / (clim(2) - clim(1));
-
-    r_start = (r_idx-1)*H + 1;
-    c_start = (c_idx-1)*W + 1;
-    stitched_im(r_start:r_start+H-1, c_start:c_start+W-1) = this_map;
-end
-
-figure('Name', 'Montage of All Components', 'Color', 'w');
-imagesc(stitched_im); axis image off; colormap jet;
-title(sprintf('Montage of %d ICA Components', num_ICs));
-colorbar;
+% for k = 1:num_ICs
+%     [r_idx, c_idx] = ind2sub([grid_rows, grid_cols], k);
+% 
+%     this_map = ica_maps(:,:,k);
+%     clim = [prctile(this_map(:), 1) prctile(this_map(:), 99)];
+% 
+%     this_map = max(min(this_map, clim(2)), clim(1));
+%     this_map = (this_map - clim(1)) / (clim(2) - clim(1));
+% 
+%     r_start = (r_idx-1)*H + 1;
+%     c_start = (c_idx-1)*W + 1;
+%     stitched_im(r_start:r_start+H-1, c_start:c_start+W-1) = this_map;
+% end
+% 
+% figure('Name', 'Montage of All Components', 'Color', 'w');
+% imagesc(stitched_im); axis image off; colormap jet;
+% title(sprintf('Montage of %d ICA Components', num_ICs));
+% colorbar;
 
 %% Interactive ICA inspector
 % figure('Name', 'ICA Inspector', 'Color', 'w', 'Position', [200 200 1200 500]);

@@ -1,5 +1,6 @@
 function vsd_interactive_crop(input_file)
 % VSD_INTERACTIVE_CROP
+% this is mainly to remove artifcats and to salvage data
 % Loads a VSD HDF5 file, opens a GUI for interactive cropping,
 % and saves a new file with the suffix "_cropped.h5".
 %
@@ -130,3 +131,4 @@ function customWait(hROI)
         end
     end
 end
+fprintf('Run vsd interactive contrast script after this\n');

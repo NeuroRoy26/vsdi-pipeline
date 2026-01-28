@@ -1,11 +1,11 @@
 function vsd_interactive_contrast(input_file)
 % VSD_INTERACTIVE_CONTRAST_V3
+% this is mainly to remove artifcats and to salvage data
 % 1. Scroll through frames to ignore dark start/shutter lag.
 % 2. Identify Structural/Functional pattern visually.
 % 3. Tune contrast for each channel independently.
 % 4. Save processed file.
-
-    %% 1. Input Handling
+% 1. Input Handling
     if nargin < 1 || isempty(input_file)
         [file, path] = uigetfile('*.h5;*.hdf5', 'Select Cropped VSD File');
         if isequal(file, 0), return; end
@@ -181,3 +181,4 @@ function vsd_interactive_contrast(input_file)
         fprintf('Saved: %s\n', out_file);
     end
 end
+fprintf('Run Motion compensation script after this\n');

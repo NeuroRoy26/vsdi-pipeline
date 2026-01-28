@@ -1,5 +1,5 @@
 clc; clear; close all;
-
+% runs on motion compensated files
 % -----------------------------------------------------------------
 %% 1. UI: Select Files
 fprintf('Opening file selector...\n');
@@ -25,7 +25,7 @@ num_files = length(file_list);
 p.Bin = 1;
 p.Sigma = 1;
 p.MedianWin = 3;
-p.BaselineIdx = 38:100;
+p.BaselineIdx = 1:750; %changed from 38:100;
 p.Dataset = '/functional'; 
 
 fprintf('Batch processing started for %d files...\n', num_files);

@@ -2,6 +2,7 @@ clc; clear; close all;
 % -----------------------------------------------------------------
 %                   run_trial_averaging_v2.m
 % -----------------------------------------------------------------
+% runs on motion compensated files
 %% 1. Define Files and Parameters
 % h5_files_to_average = { 
 %     % 'data/motion_compensated/led_E0B0_vsd_corrected.h5',  

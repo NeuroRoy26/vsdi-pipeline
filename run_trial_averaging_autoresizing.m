@@ -2,6 +2,7 @@ clc; clear; close all;
 % -----------------------------------------------------------------
 %                   run_trial_averaging_v2_autoresize.m
 % -----------------------------------------------------------------
+% runs on motion compensated files
 %% 1. Define Files and Parameters
 %= UI file selector
 fprintf('=== Select H5 Files to Average ===\n');
