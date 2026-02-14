@@ -1,190 +1,243 @@
-%% generate_flow_figures.m
-% Generates Flow-Registration figures:
-% (E) displacement vector field
-% (F) divergence over time
-%
-% REQUIREMENTS:
-%   - Requires w.h5 file
-%   - Requires Image Processing Toolbox (for imgaussfilt)
-clear; clc;
+%% simple_blind_comparison_validation.m
+% BLIND CHECK: Raw vs Corrected Structural Averages
+% Includes quantitative validation of motion correction
+% Auto-load if file exists, otherwise prompt manually.
 
-%% ---------------- USER SETTINGS ----------------
-frameRate     = [];    % set (Hz) if you want time in seconds, else leave empty
-frame_frac    = 0.5;   % fraction of sequence for vector field (0–1)
-subsample     = 10;    % arrow density
-smooth_sigma  = 2;     % spatial smoothing for visualization ONLY
+clear; clc; close all;
 
-%% ------------------------------------------------
-%% Select w.h5 file using file explorer
-fprintf('Please select the w.h5 file...\n');
-[filename, pathname] = uigetfile({'*.h5;*.hdf5', 'HDF5 Files (*.h5, *.hdf5)'; ...
-                                  '*.*', 'All Files (*.*)'}, ...
-                                  'Select w.h5 displacement file');
+%% ------------------------------------------------------------------------
+% 0. PREDEFINED FILE PATHS (AUTO CHECK)
+% -------------------------------------------------------------------------
 
-% Check if user cancelled
-if isequal(filename, 0)
-    fprintf('User cancelled file selection. Exiting.\n');
-    return;
+raw_path  = "C:\Roy\MSc\Thesis\Scripts\data\figures\led_E0B0.h5";
+corr_path = "C:\Roy\MSc\Thesis\Scripts\data\figures\led_E0B0_vsd_corrected.h5";
+
+% ---- RAW FILE CHECK ----
+if isfile(raw_path)
+    fprintf('RAW file found automatically:\n%s\n', raw_path);
+else
+    fprintf('RAW file not found. Please select manually.\n');
+    [raw_fn, raw_pn] = uigetfile('*.h5', 'Select RAW file');
+    if raw_fn==0, return; end
+    raw_path = fullfile(raw_pn, raw_fn);
 end
 
-% Construct full file path
-wfile = fullfile(pathname, filename);
-fprintf('Selected file: %s\n', wfile);
+% ---- CORRECTED FILE CHECK ----
+if isfile(corr_path)
+    fprintf('CORRECTED file found automatically:\n%s\n', corr_path);
+else
+    fprintf('CORRECTED file not found. Please select manually.\n');
+    [corr_fn, corr_pn] = uigetfile('*.h5', 'Select CORRECTED file');
+    if corr_fn==0, return; end
+    corr_path = fullfile(corr_pn, corr_fn);
+end
 
-%% Verify file contains required datasets
+%% ------------------------------------------------------------------------
+% 1. LOAD & IDENTIFY STRUCTURAL FRAMES (RAW)
+% -------------------------------------------------------------------------
+
+fprintf('\nLoading RAW data...\n');
+info_r = h5info(raw_path);
+raw_data = double(h5read(raw_path, ['/' info_r.Datasets(1).Name]));
+
+T = size(raw_data, 3);
+means = squeeze(mean(mean(raw_data,1),2));
+stds  = squeeze(std(std(raw_data,0,1),0,2));
+contrast = stds ./ max(means, eps);
+
+struct_idxs = [];
+for t = 1:2:T-1
+    if contrast(t) > contrast(t+1)
+        struct_idxs(end+1) = t;
+    else
+        struct_idxs(end+1) = t+1;
+    end
+end
+
+raw_struct = raw_data(:,:,struct_idxs);
+fprintf('Identified %d structural frames in RAW.\n', length(struct_idxs));
+
+%% ------------------------------------------------------------------------
+% 2. LOAD CORRECTED DATA
+% -------------------------------------------------------------------------
+
+fprintf('\nLoading CORRECTED data...\n');
 try
-    info = h5info(wfile);
-    datasets = {info.Datasets.Name};
-    
-    if ~ismember('u', datasets) || ~ismember('v', datasets)
-        error('File does not contain required datasets /u and /v');
-    end
-    
-    fprintf('File validated successfully.\n');
-catch ME
-    error('Error reading HDF5 file: %s', ME.message);
+    corr_struct = double(h5read(corr_path, '/structural'));
+    fprintf('Loaded /structural dataset directly.\n');
+catch
+    info_c = h5info(corr_path);
+    corr_struct = double(h5read(corr_path, ['/' info_c.Datasets(1).Name]));
+    fprintf('Loaded dataset: %s\n', info_c.Datasets(1).Name);
 end
 
-%% Load displacement fields
-u = h5read(wfile, '/u');   % [H x W x T]
-v = h5read(wfile, '/v');
-[H,W,T] = size(u);
-fprintf('Loaded displacement fields: %dx%dx%d\n', H, W, T);
+%% FRAME-TO-FRAME CORRELATION CHECK
 
-%% =========================================================
-%% FIGURE E — Displacement vector field (quiver)
-%% =========================================================
+n_test = min(200, size(raw_struct,3)-1); % limit for speed
+corr_raw_vals  = zeros(n_test,1);
+corr_corr_vals = zeros(n_test,1);
 
-% Ask user to select structural/background image
-fprintf('\nPlease select a structural/background image (optional)...\n');
-[bg_filename, bg_pathname] = uigetfile({'*.tif;*.tiff;*.png;*.jpg;*.jpeg;*.bmp', 'Image Files (*.tif, *.png, *.jpg, *.bmp)'; ...
-                                        '*.h5;*.hdf5', 'HDF5 Files (*.h5, *.hdf5)'; ...
-                                        '*.*', 'All Files (*.*)'}, ...
-                                        'Select background/structural image (Cancel to skip)');
+for k = 1:n_test
+    r1 = raw_struct(:,:,k);
+    r2 = raw_struct(:,:,k+1);
+    c1 = corr_struct(:,:,k);
+    c2 = corr_struct(:,:,k+1);
 
-% Load background image if selected
-bg_img = [];
-if ~isequal(bg_filename, 0)
-    bg_path = fullfile(bg_pathname, bg_filename);
-    fprintf('Loading background image: %s\n', bg_filename);
-    
-    try
-        [~,~,ext] = fileparts(bg_filename);
-        if strcmpi(ext, '.h5') || strcmpi(ext, '.hdf5')
-            % For HDF5 files, show available datasets and let user choose
-            info = h5info(bg_path);
-            fprintf('Available datasets in %s:\n', bg_filename);
-            for i = 1:length(info.Datasets)
-                fprintf('  [%d] %s - size: %s\n', i, info.Datasets(i).Name, ...
-                        mat2str(info.Datasets(i).Dataspace.Size));
-            end
-            dataset_idx = input('Enter dataset number to use: ');
-            if dataset_idx > 0 && dataset_idx <= length(info.Datasets)
-                dataset_name = ['/' info.Datasets(dataset_idx).Name];
-                bg_img = h5read(bg_path, dataset_name);
-                % If 3D, take mean or first frame
-                if ndims(bg_img) == 3
-                    fprintf('3D data detected. Using mean projection.\n');
-                    bg_img = mean(bg_img, 3);
-                end
-            end
-        else
-            % Regular image file
-            bg_img = imread(bg_path);
-            % Convert to grayscale if RGB
-            if size(bg_img, 3) == 3
-                bg_img = rgb2gray(bg_img);
-            end
-        end
-        
-        % Ensure background image matches displacement field size
-        if ~isequal(size(bg_img), [H, W])
-            fprintf('Resizing background image from %dx%d to %dx%d\n', ...
-                    size(bg_img,1), size(bg_img,2), H, W);
-            bg_img = imresize(bg_img, [H, W]);
-        end
-        
-        bg_img = double(bg_img);
-        fprintf('Background image loaded successfully.\n');
-    catch ME
-        warning('Could not load background image: %s', ME.message);
-        bg_img = [];
-    end
+    corr_raw_vals(k)  = corr(r1(:), r2(:));
+    corr_corr_vals(k) = corr(c1(:), c2(:));
+end
+
+mean_corr_raw  = mean(corr_raw_vals);
+mean_corr_corr = mean(corr_corr_vals);
+
+fprintf('\nFrame-to-Frame Correlation:\n');
+fprintf('RAW:       %.5f\n', mean_corr_raw);
+fprintf('CORRECTED: %.5f\n', mean_corr_corr);
+fprintf('Increase:  %.3f %%\n', ...
+    100*(mean_corr_corr - mean_corr_raw)/mean_corr_raw);
+%% ------------------------------------------------------------------------
+% 3. COMPUTE AVERAGES
+% -------------------------------------------------------------------------
+
+fprintf('\nCalculating averages...\n');
+avg_raw  = mean(raw_struct, 3);
+avg_corr = mean(corr_struct, 3);
+
+%% ------------------------------------------------------------------------
+% 4. OPTIONAL MILD SHARPENING (FOR VISUALIZATION ONLY)
+% -------------------------------------------------------------------------
+
+apply_sharpening = true;  % <-- set false to disable
+
+if apply_sharpening
+    sigma  = 1.0;
+    amount = 0.6;
+
+    blurred = imgaussfilt(avg_corr, sigma);
+    avg_corr_display = avg_corr + amount * (avg_corr - blurred);
+    avg_corr_display(avg_corr_display < 0) = 0;
 else
-    fprintf('No background image selected.\n');
+    avg_corr_display = avg_corr;
 end
 
-t = max(1, round(frame_frac * T));
-u_t = u(:,:,t);
-v_t = v(:,:,t);
+%% ------------------------------------------------------------------------
+% % 5. QUANTITATIVE VALIDATION
+% % -------------------------------------------------------------------------
+% 
+% % ---- Sharpness Metric (Variance of Laplacian) ----
+% lap_raw  = del2(avg_raw);
+% lap_corr = del2(avg_corr);
+% 
+% sharp_raw  = var(lap_raw(:));
+% sharp_corr = var(lap_corr(:));
+% 
+% % ---- Temporal Stability ----
+% raw_std_map  = std(raw_struct, 0, 3);
+% corr_std_map = std(corr_struct, 0, 3);
+% 
+% mean_raw_std  = mean(raw_std_map(:));
+% mean_corr_std = mean(corr_std_map(:));
+% 
+% fprintf('\n=== MOTION CORRECTION VALIDATION ===\n');
+% fprintf('Sharpness (Variance of Laplacian)\n');
+% fprintf('RAW:        %.4f\n', sharp_raw);
+% fprintf('CORRECTED:  %.4f\n', sharp_corr);
+% fprintf('Improvement: %.2f %%\n', ...
+%     100*(sharp_corr - sharp_raw)/sharp_raw);
+% 
+% fprintf('\nTemporal Pixel STD\n');
+% fprintf('RAW:        %.4f\n', mean_raw_std);
+% fprintf('CORRECTED:  %.4f\n', mean_corr_std);
+% fprintf('Reduction:  %.2f %%\n', ...
+%     100*(mean_raw_std - mean_corr_std)/mean_raw_std);
 
-% Smooth for visualization only
-u_t = imgaussfilt(u_t, smooth_sigma);
-v_t = imgaussfilt(v_t, smooth_sigma);
+%% ------------------------------------------------------------------------
+% 6. DISPLAY (3 PANEL)
+% -------------------------------------------------------------------------
 
-% Subsample
-u_ds = u_t(1:subsample:end, 1:subsample:end);
-v_ds = v_t(1:subsample:end, 1:subsample:end);
+vals = avg_corr(:);
+vals = vals(vals > mean(vals)*0.1);
+clims = [prctile(vals,1), prctile(vals,99)];
 
-% Create coordinate grids for quiver
-[Y_ds, X_ds] = meshgrid(1:subsample:W, 1:subsample:H);
+figure('Color','w', 'Position', [50, 50, 1500, 600]);
 
-figure('Color','k', 'Name', 'Displacement Vector Field');
+subplot(1,2,1);
+imagesc(avg_raw, clims);
+colormap(gray); axis image off;
+title('Avg. RAW Frames', 'FontSize', 14);
 
-% Display background image if available
-if ~isempty(bg_img)
-    % Normalize and display background
-    bg_norm = (bg_img - min(bg_img(:))) / (max(bg_img(:)) - min(bg_img(:)));
-    imagesc(bg_norm);
-    colormap gray;
-    hold on;
-    % Use colored arrows on grayscale background
-    quiver(X_ds, Y_ds, u_ds, v_ds, 1.0, 'Color', [1 0.3 0.3], 'LineWidth', 1.5);
-else
-    % No background - use white arrows on black
-    quiver(X_ds, Y_ds, u_ds, v_ds, 1.0, 'w', 'LineWidth', 1.5);
+% figure('Color','w', 'Position', [50, 50, 1500, 600]);
+subplot(1,2,2);
+imagesc(avg_corr_display, clims);
+colormap(gray); axis image off;
+title('Avg. Motion Compensated Frames', 'FontSize', 14);
+
+% subplot(1,3,3);
+% imagesc(avg_corr - avg_raw);
+% axis image off;
+% colormap(gca, 'jet');
+% colorbar;
+% title('Difference (Corrected - Raw)', 'FontSize', 14);
+
+linkaxes(findall(gcf,'type','axes'));
+
+fprintf('\nVisualization complete.\n');
+
+%% ---------------- 7. FIGURE 3: MOTION STATS ----------------
+% Plot global shift magnitude over time
+[w_fn, w_pn] = uigetfile('*.hdf;*.h5', 'Select FLOW (w.h5)');
+if w_fn==0, return; end
+w_file = fullfile(w_pn, w_fn);
+
+u = h5read(w_file, '/u');
+v = h5read(w_file, '/v');
+[H, W, T] = size(u);
+mid_t = round(T/2);
+
+fprintf('Calculating Motion Statistics...\n');
+shifts = zeros(T, 1);
+for t = 1:T
+    % Mean magnitude of displacement vectors per frame
+    mag = sqrt(u(:,:,t).^2 + v(:,:,t).^2);
+    shifts(t) = mean(mag(:));
 end
 
-axis image ij off; 
-title(sprintf('Displacement field (frame %d/%d)', t, T), 'Color','w');
-set(gca,'Color','k');
+time_axis = (0:T-1) / 30; % Assume 30 Hz
 
-%% =========================================================
-%% FIGURE F — Mean divergence over time
-%% =========================================================
-fprintf('Computing divergence over time...\n');
-mean_div = zeros(T,1);
-for k = 1:T
-    uk = u(:,:,k);
-    vk = v(:,:,k);
-    [ux, ~] = gradient(uk);
-    [~, vy] = gradient(vk);
-    div = ux + vy;
-    mean_div(k) = mean(abs(div(:)));   % robust metric
-end
+fig3 = figure('Color','w', 'Position', [200, 200, 600, 300]);
+plot(time_axis, shifts, 'Color', [0.2 0.2 0.2], 'LineWidth', 1); % Raw data
+hold on;
+% Add a smoothed trend line
+plot(time_axis, smoothdata(shifts, 'gaussian', 20), 'Color', [0.85 0.32 0.1], 'LineWidth', 2.5);
 
-% Optional smoothing (matches paper style)
-mean_div = movmean(mean_div, 5);
+grid on; box off;
+ylabel('Avg. Displacement (pixels)', 'FontSize', 12, 'FontWeight', 'bold');
+xlabel('Time (s)', 'FontSize', 12, 'FontWeight', 'bold');
+title('Global Motion Magnitude', 'FontSize', 14);
+legend({'Raw Motion', 'Smoothed Trend'}, 'Location', 'northwest');
+xlim([0 max(time_axis)]);
 
-% Time axis
-if isempty(frameRate)
-    x = 1:T;
-    xlab = 'Frame';
-else
-    x = (0:T-1) / frameRate;
-    xlab = 'Time (s)';
-end
+%% ------------------------------------------------------------------------
+% 7. HIGH-QUALITY TIFF EXPORT (COMMENT OUT IF NOT NEEDED)
+% ------------------------------------------------------------------------
+% 
+% Exports 16-bit TIFF files (full dynamic range)
 
-figure('Color','w', 'Name', 'Divergence Over Time');
-plot(x, mean_div, 'LineWidth', 2, 'Color', [0 0.4470 0.7410]);
-xlabel(xlab, 'FontSize', 12);
-ylabel('Mean |divergence|', 'FontSize', 12);
-title('Divergence of displacement field over time', 'FontSize', 14);
-grid on;
-box on;
-
-fprintf('\n===========================================\n');
-fprintf('Figures generated successfully!\n');
-fprintf('File: %s\n', filename);
-fprintf('Frames analyzed: %d\n', T);
-fprintf('===========================================\n');
+% export_folder = "C:\Roy\MSc\Thesis\Scripts\data\figures";
+% 
+% if ~isfolder(export_folder)
+%     mkdir(export_folder);
+% end
+% 
+% raw_uint16  = uint16(mat2gray(avg_raw)  * 65535);
+% corr_uint16 = uint16(mat2gray(avg_corr_display) * 65535);
+% 
+% imwrite(raw_uint16,  fullfile(export_folder, ...
+%     "RAW_structural_average.tif"),  'tif', 'Compression', 'none');
+% 
+% imwrite(corr_uint16, fullfile(export_folder, ...
+%     "CORRECTED_structural_average.tif"), 'tif', 'Compression', 'none');
+% 
+% exportgraphics(fig3, 'Fig3_Stats_Fixed.png', 'Resolution', 300, 'BackgroundColor', 'none');
+% 
+% fprintf('16-bit TIFFs exported to:\n%s\n', export_folder);
