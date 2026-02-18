@@ -1,5 +1,6 @@
 % analysis_Step1_Concatenate.m
 % Same as analysis_Step1.m script but concatenated
+% Containes Trigger Extraction
 % BATCH PROCESSOR: Signal Extraction with CONCATENATION Support
 % 
 % NEW FEATURES:
