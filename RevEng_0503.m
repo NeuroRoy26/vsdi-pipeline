@@ -413,3 +413,114 @@ for i = 1:64
 end
 
 sgtitle(['Subject 0503 - Averaged ERPs (Normalize = ' num2str(NORMALIZE_CHECKBOX) ')']);
+
+%% PART 4: ADVANCED SPATIAL ANALYSIS (CSD & BIPOLAR)
+% Paste this at the end of your existing script.
+% It uses 'erpAvg', 'tFinal', 'roiIdx', and the mapping variables.
+
+disp('Calculating Spatial Transforms...');
+
+% --- 1. SETUP: RECONSTRUCT THE 2D GRID ---
+% We must convert the linear 64-channel array back into a 9x8 matrix (Voltage Grid)
+% Dimensions: [Rows (9) x Cols (8) x TimePoints]
+[nChannels, nTime] = size(erpAvg(:, roiIdx));
+V_grid = NaN(9, 8, nTime); 
+
+% Re-define maps just in case they aren't in workspace
+row_map = [1 1 1 1 1 1 2 2 2 2 2 2 3 3 3 3 3 3 3 3 4 4 4 4 4 4 4 4 5 5 5 5 5 5 5 5 6 6 6 6 6 6 6 6 7 7 7 7 7 7 7 7 8 8 8 8 8 8 9 9 9 9 9 9];
+col_map = [1 2 3 6 7 8 1 2 3 6 7 8 1 2 3 4 5 6 7 8 1 2 3 4 5 6 7 8 1 2 3 4 5 6 7 8 1 2 3 4 5 6 7 8 1 2 3 4 5 6 7 8 2 3 4 5 6 7 2 3 4 5 6 7];
+
+for i = 1:64
+    r = row_map(i); 
+    c = col_map(i);
+    V_grid(r, c, :) = erpAvg(i, roiIdx);
+end
+
+% --- 2. CALCULATION: BIPOLAR MONTAGE (Row-wise) ---
+% Formula: Bipolar(col) = Voltage(col) - Voltage(col+1)
+% This creates a "longitudinal" chain along the rows.
+Bipolar_grid = diff(V_grid, 1, 2); % Diff along dimension 2 (Columns)
+
+% --- 3. CALCULATION: CURRENT SOURCE DENSITY (CSD) ---
+% Formula: CSD = -Laplacian(Voltage)
+% Approximation: 4*V_center - (V_up + V_down + V_left + V_right)
+CSD_grid = NaN(size(V_grid));
+
+% Laplacian Kernel (Standard 5-point stencil)
+% Note: We use negative kernel because CSD is proportional to -Laplacian
+kern = [0 -1 0; -1 4 -1; 0 -1 0]; 
+
+for t = 1:nTime
+    % Extract one time slice (2D image of voltage)
+    frame = squeeze(V_grid(:, :, t));
+    
+    % Apply 2D convolution (valid region only to avoid edge artifacts)
+    % 'same' returns central part, but edges are inaccurate so we mask them later
+    csd_frame = conv2(frame, kern, 'same');
+    
+    CSD_grid(:, :, t) = csd_frame;
+end
+
+% --- 4. VISUALIZATION A: BIPOLAR TRACES ---
+figure('Name', 'Bipolar Montage (Row-wise Differences)', 'Color', 'w');
+sgtitle('Bipolar Montage (Local Contrast)');
+time_axis = tFinal;
+
+plot_count = 0;
+% We iterate up to 7 columns because Bipolar reduces width by 1
+for r = 1:9
+    for c = 1:7
+        plot_count = plot_count + 1;
+        
+        % Data is effectively (Col) - (Col+1)
+        trace = squeeze(Bipolar_grid(r, c, :));
+        
+        % Skip if data is NaN (gaps in the chip)
+        if all(isnan(trace)), continue; end
+        
+        subplot(9, 8, (r-1)*8 + c);
+        plot(time_axis, trace, 'k', 'LineWidth', 0.5);
+        
+        axis tight; box off; 
+        set(gca, 'XTick', [], 'YTick', [], 'Visible', 'on');
+        
+        % Add Zero Line
+        yline(0, 'Color', [0.8 0.8 0.8]);
+    end
+end
+
+
+% --- 5. VISUALIZATION B: CSD SNAPSHOT (Source Localization) ---
+% Instead of squiggly lines, CSD is best viewed as a HEATMAP.
+% We will find the time point with the strongest activity and map it.
+
+% Find the Global Field Power (GFP) peak to pick the best time
+gfp = std(erpAvg(:, roiIdx), 0, 1); 
+[~, peakIdx] = max(gfp); 
+peakTimeMs = tFinal(peakIdx);
+
+figure('Name', 'Source Localization (CSD vs Voltage)', 'Color', 'w', 'Position', [100, 100, 1000, 500]);
+
+% Subplot 1: Voltage Map (Monopolar)
+subplot(1, 2, 1);
+imagesc(squeeze(V_grid(:, :, peakIdx))); 
+colormap(gca, 'parula'); colorbar;
+title(['Voltage Potential at ' num2str(peakTimeMs, '%.1f') 'ms']);
+xlabel('Column'); ylabel('Row');
+axis square; 
+
+% Subplot 2: CSD Map (Source/Sink)
+subplot(1, 2, 2);
+% We ignore the outer rim (edges) because CSD calculation is invalid there
+csd_snapshot = squeeze(CSD_grid(:, :, peakIdx));
+csd_snapshot(1,:) = NaN; csd_snapshot(end,:) = NaN; % Mask Rows
+csd_snapshot(:,1) = NaN; csd_snapshot(:,end) = NaN; % Mask Cols
+
+imagesc(csd_snapshot);
+colormap(gca, 'jet'); % Jet is standard for CSD (Blue=Source, Red=Sink)
+colorbar;
+title(['Current Source Density at ' num2str(peakTimeMs, '%.1f') 'ms']);
+xlabel('Column'); ylabel('Row');
+axis square;
+
+sgtitle('Comparison: Blurry Potential vs. Localized Source');

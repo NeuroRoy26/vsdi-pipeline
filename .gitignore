@@ -5,5 +5,4 @@ converted__1000/
 literature/
 videos/
 project/
-./All_Experiments_Summary.mat
-./*.mat
+*.mat

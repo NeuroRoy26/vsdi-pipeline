@@ -9,6 +9,8 @@
 %   - Stores individual file metadata for Step 2 reconstruction
 %   - SORTS FILES by embedded numbers (E0B0, E0B1, E0B2, etc.)
 %   - SMART TRIGGER: Calculates Onset via Tangent Projection
+%   - FLEXMEA72 OVERLAY: Visualizes electrode grid on spatial maps
+%   - ADVANCED HARVESTING: Gradient Borders, Watershed ROIs, Wavefront Maps
 %
 % MEMORY EFFICIENT: Only processes one movie at a time, stores traces only
 % 1. SMART CLEAR: Keeps files if they are already loaded
@@ -20,6 +22,14 @@ CONFIG.filter_order = 4;              % Butterworth filter order
 CONFIG.default_fs = 500;              % Hz - Default sampling frequency
 CONFIG.output_file = 'All_Experiments_Summary.mat';
 CONFIG.enable_concatenation = true;   % NEW: Enable concatenation mode
+% --- FLEXMEA72 GRID SETTINGS ---
+% Resolution: (4.7 x 4.7) * 2 = 9.4 microns per pixel
+CONFIG.microns_per_pixel = 9.4; 
+% Dimensions from Datasheet
+CONFIG.grid_pitch_x_um = 625;  % Horizontal pitch
+CONFIG.grid_pitch_y_um = 750;  % Vertical pitch
+CONFIG.elec_diam_um = 100;     % Electrode diameter
+CONFIG.grid_dim = [8, 9];      % 8 Columns x 9 Rows (A-J approx)
 %% ======================== FILE SELECTION ========================
 fprintf('========================================\n');
 fprintf(' BATCH PROCESSOR - Signal Extraction\n');
@@ -212,7 +222,7 @@ for k = 1:num_files
             figure('Name', ['Trigger Logic Check - ' fname], 'Color', 'w', 'Position', [100, 100, 1000, 800]);
             
             % Plot 1: Raw vs Smooth Signal
-            subplot(3, 1, 1);
+            subplot(2, 1, 1);
             plot(current_time_axis, final_trace, 'Color', [0.7 0.7 0.7], 'DisplayName', 'Raw Data (kept)');
             hold on;
             plot(current_time_axis, detection_trace, 'b-', 'LineWidth', 1.5, 'DisplayName', 'Filtered (for detection only)');
@@ -220,32 +230,184 @@ for k = 1:num_files
             legend('show'); grid on; axis tight;
             
             % Plot 2: The Derivative of the SMOOTHED signal
-            subplot(3, 1, 2);
+            subplot(2, 1, 2);
             plot(current_time_axis, deriv_trace, 'r-', 'LineWidth', 1);
             title('Step 2: Derivative of Filtered Trace');
             ylabel('dF/dt (Smoothed)');
             grid on; axis tight;
             
-            % Plot 3: Zoom in on the likely trigger
-            % (Just a helper to see if the derivative peak aligns with the rise)
-            subplot(3, 1, 3);
-            [~, max_idx] = max(deriv_trace);
-            zoom_span = round(Fs * 1.0); % 1 second window
-            idx_range = max(1, max_idx-zoom_span) : min(length(deriv_trace), max_idx+zoom_span);
-            
-            plot(current_time_axis(idx_range), final_trace(idx_range), 'k.-');
-            hold on;
-            xline(current_time_axis(max_idx), 'r--', 'Detected Start?');
-            title('Zoom: Alignment Check');
-            grid on; axis tight;
-            
+           
             % fprintf(' Paused for visualization. Press any key to continue...\n');
             % pause; 
             
         end
         
-        %% --- GENERATE PREVIEW IMAGE ---
+        %%  STEP 1.5: FlexMEA72 GRID OVERLAY
+        % ============================================================
+        
+        % --- GENERATE PREVIEW IMAGE ---
         preview_img = max(mov, [], 3);
+        % 1. Calculate Pixel Dimensions
+        px_pitch_x = CONFIG.grid_pitch_x_um / CONFIG.microns_per_pixel;
+        px_pitch_y = CONFIG.grid_pitch_y_um / CONFIG.microns_per_pixel;
+        px_diam    = CONFIG.elec_diam_um / CONFIG.microns_per_pixel;
+        
+        % 2. Create Centered Grid Coordinates
+        % The FlexMEA72 is an 8x9 grid
+        cols = CONFIG.grid_dim(1);
+        rows = CONFIG.grid_dim(2);
+        
+        % Define grid vectors centered around 0
+        x_vec = ((0:cols-1) - (cols-1)/2) * px_pitch_x;
+        y_vec = ((0:rows-1) - (rows-1)/2) * px_pitch_y;
+        
+        [GX, GY] = meshgrid(x_vec, y_vec);
+        
+        % 3. MASKING: Remove GND and REF Electrodes
+        % Mask is 9 Rows x 8 Cols
+        % True = Recording Electrode, False = GND/REF
+        valid_mask = true(rows, cols);
+        
+        % Remove GNDs (Row 1: Cols 4,5 AND Row 9: Cols 1,8)
+        valid_mask(1, [4, 5]) = false; 
+        valid_mask(9, [1, 8]) = false;
+        
+        % Remove REFs (Row 2: Cols 4,5 AND Row 8: Cols 1,8)
+        valid_mask(2, [4, 5]) = false; 
+        valid_mask(8, [1, 8]) = false;
+        
+        % 4. Apply Shift to Center
+        center_x = width / 2;
+        center_y = height / 2;
+        
+        GX = GX + center_x;
+        GY = GY + center_y;
+        
+        % 5. Filter for Plotting
+        GX_rec = GX(valid_mask);
+        GY_rec = GY(valid_mask);
+        
+        % 6. Visualization Check (First file only)
+        if k == 1
+            figure('Name', 'FlexMEA72 Recording Sites', 'Color', 'w');
+            imshow(preview_img, []);
+            hold on;
+            title(sprintf('MEA Overlay | Pitch: %.1fum x %.1fum | Res: %.2f um/px', ...
+                  CONFIG.grid_pitch_x_um, CONFIG.grid_pitch_y_um, CONFIG.microns_per_pixel));
+            
+            % Plot Recording Electrodes (Black)
+            plot(GX_rec, GY_rec, 'o', 'MarkerSize', px_diam/2, ...
+                 'Color', 'k', 'LineWidth', 1.5, 'DisplayName', 'Recording');
+                 
+            % Optional: Plot Disabled sites nicely (faint red x) if you want to verify positions
+            GX_bad = GX(~valid_mask); GY_bad = GY(~valid_mask);
+            plot(GX_bad, GY_bad, 'rx', 'MarkerSize', 8, 'DisplayName', 'GND/REF');
+        
+            hold off;
+        end
+        
+        if k == 1
+            mov_filtered = zeros(size(mov));
+            mov_filtered = imgaussfilt(mov, 2);      %sigma = 2
+            % mov_filtered = medfilt3(mov, [3 3 1]); %medianfilter= 3x3x1frame
+            preview_img_2 = mean(mov_filtered, 3);
+            figure('Name', 'Mean Spatial Image', 'Color', 'w');
+            imshow(preview_img_2, []);
+            title(sprintf('average across all frames anatomy'));
+            
+            preview_img_3 = max(mov_filtered, [], 3);
+            figure('Name', 'Max Spatial Image', 'Color', 'w');
+            imshow(preview_img_3, []);
+            title(sprintf('Max pixels per frame across all frames'));
+            preview_img_4 = std(double(mov_filtered), 0, 3);
+            figure('Name', 'STD DEV Spatial Image', 'Color', 'w');
+            imshow(preview_img_4, []);
+            title(sprintf('Std Dev across all frames Activity'));
+            
+            % mov_centered = double(mov) - mean(mov, 3); 
+            % im_right = circshift(mov_centered, [0 1 0]); % Calculate Correlation approx using multiplication of neighbors
+            % im_left  = circshift(mov_centered, [0 -1 0]); % Shift image right, left, up, down
+            % im_up    = circshift(mov_centered, [-1 0 0]);
+            % im_down  = circshift(mov_centered, [1 0 0]);
+            % % Calculate average product (covariance approximation)
+            % corr_map = mean(mov_centered .* im_right + ...
+            %                 mov_centered .* im_left + ...
+            %                 mov_centered .* im_up + ...
+            %                 mov_centered .* im_down, 3);
+            % 
+            % figure;
+            % imagesc(corr_map);
+            % axis image off;
+            % title('Correlation Image (Active Neurons)');
+            F_max = max(mov, [], 3); 
+            F_0 = median(mov, 3); 
+            F_0 = double(F_0); 
+            F_0(F_0 < 1) = 1; 
+            dFF_map = (double(F_max) - F_0) ./ F_0;
+            figure('Name', 'Delta F / F Map', 'Color', 'w');
+            imagesc(dFF_map); 
+            % clim([0 2]); % Adjust this: Try [0 1] or [0 5] depending on signal strength
+            % colormap('jet'); % 'Jet' or 'Parula' works well here
+            % colorbar;
+            axis image off;
+            title('Max \DeltaF/F Map (Normalized Activity)');
+            
+%% --- NEW: HARVESTING THE "DOODLING" ARTIFACTS (VERSION 3) ---
+            figure('Name', 'Harvesting Analysis', 'Color', 'w', 'Position', [150 150 1200 400]);
+            
+            % STEP 0: CREATE ROBUST MASK (The Key Fix)
+            % imbinarize(mat2gray(...)) automatically finds the best threshold 
+            % to separate bright signal from dark background.
+            active_mask = imbinarize(mat2gray(dFF_map)); 
+            
+            % Clean up the mask: Fill holes inside neurons, remove tiny noise specks
+            active_mask = imfill(active_mask, 'holes');
+            active_mask = bwareaopen(active_mask, 20); % Remove spots < 20 pixels
+            
+            % STEP 1: GRADIENT (Weighted)
+            % We multiply by the mask so the background turns pure black
+            dFF_smooth = medfilt2(dFF_map, [3 3]); 
+            [Gmag, ~] = imgradient(dFF_smooth);
+            Gmag_clean = Gmag .* double(active_mask); 
+            
+            subplot(1, 3, 1);
+            imagesc(Gmag_clean);
+            % Focus contrast only on the active parts
+            clim([0 prctile(Gmag(active_mask), 95)]); 
+            colormap(gca, 'hot'); 
+            axis image off;
+            title('1. Spatial Gradient (Active Borders)');
+            
+            % STEP 2: WATERSHED (Masked)
+            % 1. Smooth Gmag slightly so neurons don't break into tiny pieces
+            % 2. Run Watershed
+            L = watershed(imgaussfilt(Gmag, 4.0)); 
+            % 3. APPLY MASK: Force background to be Black (0)
+            L(~active_mask) = 0; 
+            
+            L_rgb = label2rgb(L, 'jet', 'k', 'shuffle'); 
+            subplot(1, 3, 2);
+            imshow(L_rgb);
+            title('2. Watershed (Signal Only)');
+            
+            % STEP 3: WAVEFRONT (Time-to-Peak)
+            [~, max_indices] = max(mov, [], 3);
+            time_map = double(max_indices) / Fs; 
+            
+            % Apply the same mask
+            time_map(~active_mask) = NaN; 
+            
+            subplot(1, 3, 3);
+            h = imagesc(time_map);
+            set(h, 'AlphaData', ~isnan(time_map)); % Make background transparent
+            colormap(gca, 'jet');
+            cb = colorbar; ylabel(cb, 'Time of Peak (s)');
+            axis image off;
+            title('3. Wavefront (Time-to-Peak)');
+            
+            linkaxes(findall(gcf, 'type', 'axes'));
+            
+        end
         
         %% --- STORE INDIVIDUAL FILE DATA ---
         All_Experiments(k).filename       = fname;
@@ -257,6 +419,9 @@ for k = 1:num_files
         All_Experiments(k).skewness_2nd   = sk_2nd_half;
         All_Experiments(k).polarity       = polarity_action;
         All_Experiments(k).preview_img    = preview_img;
+        % Store Grid Coordinates in case we need them later
+        All_Experiments(k).grid_overlay.X = GX;
+        All_Experiments(k).grid_overlay.Y = GY;
         All_Experiments(k).time_axis      = current_time_axis; % Saved safely
         All_Experiments(k).processing_date = datestr(now);
         
@@ -325,7 +490,7 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
     Concatenated_Recording.time_axis = time_concat;
     Concatenated_Recording.fs = Fs_concat;
     Concatenated_Recording.total_frames = concat_metadata.total_frames;
-    Concatenated_Recording.num_files = num_files;       
+    Concatenated_Recording.num_files = num_files;        
     Concatenated_Recording.num_segments = num_segments; 
     Concatenated_Recording.file_segments = concat_metadata.file_segments;
     Concatenated_Recording.segment_start_times = segment_times;
@@ -429,11 +594,11 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
             % Mark with Red Star
             plot(peak_time, peak_amp, 'r*', 'MarkerSize', 12, 'LineWidth', 1.5, ...
                  'HandleVisibility', 'off'); % Hide from legend to avoid clutter
-             
+              
             % Optional: Add text label (File Index) above the star
             text(peak_time, peak_amp + (peak_amp*0.05), sprintf('F%d', k), ...
                  'Color', 'r', 'FontSize', 8, 'HorizontalAlignment', 'center');
-             
+              
             fprintf('    - File %d: Max at %.2fs (Amp: %.2f)\n', k, peak_time, peak_amp);
         end
         
@@ -603,7 +768,6 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
             % D. Visualize the Tangent Line (Optional visual check)
             % Plot a short line segment to show the tangent slope
             plot([t_onset, t_slope], [0, amp_at_slope], 'g--', 'LineWidth', 1, 'HandleVisibility', 'off');
-
             fprintf('    - File %d: Peak=%.3fs | MaxSlope=%.3fs | Calc.Onset=%.3fs\n', ...
                     k, t_peak, t_slope, t_onset);
         end
