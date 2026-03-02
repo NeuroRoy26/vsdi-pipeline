@@ -1,5 +1,12 @@
 %% REVERSE ENGINEERED PIPELINE: 0503 MEA DATA
 % Check SEP_Project_ReadMe.md for documentations of this standalone script.
+% tried adding bipolar montages and current source localization, very buggy
+% need to fix it to be able to correlate with the VSD data
+% but the reverse engineer of the SEP project works though, the data is
+% saved in the filePath variable, see below, the data is already
+% rereferenced and only 1 animal 0503 was viable as per the records given
+% to me
+
 close all; clear; clc;
 
 %% 1. CONFIGURATION

@@ -2,7 +2,12 @@
 % Same as analysis_Step1.m script but concatenated
 % Containes Trigger Extraction
 % BATCH PROCESSOR: Signal Extraction with CONCATENATION Support
-% 
+% Tried to apply spatial processing techniques
+% calculated std dev and mean and max proj of the images
+% recalculated dff (no difference in result)
+% only thing to takeway from this script is the trigger detection logic
+% rest are not that useful
+%
 % NEW FEATURES:
 %   - Concatenates 1D traces across selected files
 %   - Creates unified time axis
