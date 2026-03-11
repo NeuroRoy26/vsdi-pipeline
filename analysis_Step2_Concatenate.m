@@ -6,6 +6,8 @@
 %   - Zero Stutter: Reads directly from disk using 'matfile'.
 %   - Keyboard Nav: Use Arrow Keys (Left/Right) to step frames.
 %   - Click-to-Seek: Click on the trace to jump to that time.
+%   - Trigger Overlay: Green onset markers from Step 1 shown on all traces.
+%   - Press 'T' to jump to the nearest trigger onset from current frame.
 %
 clear; clc; close all;
 
@@ -13,7 +15,7 @@ clear; clc; close all;
 SUMMARY_FILE = 'All_Experiments_Summary.mat';
 
 if ~exist(SUMMARY_FILE, 'file')
-    errordlg(['Summary file not found! Run Step 1 first.'], 'Error');
+    errordlg('Summary file not found! Run Step 1 first.', 'Error');
     return;
 end
 
@@ -28,6 +30,26 @@ if isfield(loaded_data, 'Concatenated_Recording')
 else
     has_concat = false;
     Concat = [];
+end
+
+% *** NEW: Load Triggers (top-level variable saved by Step 1) ***
+if isfield(loaded_data, 'Triggers')
+    Triggers = loaded_data.Triggers;
+    has_triggers = true;
+    fprintf('✓ Found Triggers (%d onsets) | Method: %s\n', ...
+            Triggers.num_triggers, Triggers.method);
+    fprintf('  Onset times (s): ');
+    fprintf('%.3f  ', Triggers.t_onset_sec);
+    fprintf('\n');
+elseif has_concat && isfield(Concat, 'Triggers')
+    % Fallback: also check inside Concatenated_Recording
+    Triggers = Concat.Triggers;
+    has_triggers = true;
+    fprintf('✓ Found Triggers inside Concatenated_Recording\n');
+else
+    Triggers = [];
+    has_triggers = false;
+    fprintf('⚠ No Triggers found. Run Step 1 with concatenation to generate them.\n');
 end
 
 %% ======================== MAIN GUI ========================
@@ -79,13 +101,15 @@ btn_load = uicontrol('Parent', panel_right, 'Style', 'pushbutton', ...
 
 % Store Data
 gui_data = struct();
-gui_data.All = All_Experiments;
-gui_data.Concat = Concat;
+gui_data.All        = All_Experiments;
+gui_data.Concat     = Concat;
+gui_data.Triggers   = Triggers;       % *** NEW ***
 gui_data.has_concat = has_concat;
-gui_data.ax_trace = ax_trace;
-gui_data.ax_img = ax_img;
-gui_data.txt_info = txt_info;
-gui_data.curr_idx = 1;
+gui_data.has_triggers = has_triggers; % *** NEW ***
+gui_data.ax_trace   = ax_trace;
+gui_data.ax_img     = ax_img;
+gui_data.txt_info   = txt_info;
+gui_data.curr_idx   = 1;
 guidata(f, gui_data);
 
 updateView(lst_box, []);
@@ -101,12 +125,21 @@ function updateView(src, ~)
         S = G.Concat;
         G.curr_idx = 0; 
         
-        axes(G.ax_trace); cla;
-        plot(S.time_axis, S.trace, 'k-', 'LineWidth', 1); hold on;
+        axes(G.ax_trace); cla; hold on;
+        plot(S.time_axis, S.trace, 'k-', 'LineWidth', 1);
         for k = 1:length(S.file_segments)
             seg = S.file_segments(k);
             x = S.time_axis(seg.start_frame);
             xline(x, 'r--', 'LineWidth', 1);
+        end
+        % *** NEW: Overlay trigger onsets on concatenated preview ***
+        if G.has_triggers
+            for k = 1:G.Triggers.num_triggers
+                xline(G.Triggers.t_onset_sec(k), 'g-', 'LineWidth', 1.5);
+                text(G.Triggers.t_onset_sec(k), max(S.trace)*0.85, ...
+                     sprintf('T%d', k), 'Color', [0 0.6 0], ...
+                     'FontSize', 8, 'HorizontalAlignment', 'left');
+            end
         end
         axis tight; grid on;
         title(sprintf('Concatenated: %d Files, %.1f sec', S.num_files, S.time_axis(end)));
@@ -118,8 +151,22 @@ function updateView(src, ~)
         S = G.All(real_idx);
         G.curr_idx = real_idx;
         
-        axes(G.ax_trace); cla;
+        axes(G.ax_trace); cla; hold on;
         plot(S.time_axis, S.trace, 'b-'); axis tight; grid on;
+        % *** NEW: Overlay this file's trigger onset on individual preview ***
+        if G.has_triggers && real_idx <= G.Triggers.num_triggers
+            t_on = G.Triggers.t_onset_sec(real_idx);
+            % t_onset is on the concatenated timeline; subtract segment offset
+            if G.has_concat
+                seg_offset = G.Concat.time_axis(G.Concat.file_segments(real_idx).start_frame);
+                t_on_local = t_on - seg_offset;
+            else
+                t_on_local = t_on;
+            end
+            xline(t_on_local, 'g-', 'LineWidth', 2, 'DisplayName', 'Onset (Trigger)');
+            text(t_on_local, max(S.trace)*0.85, 'Trigger', ...
+                 'Color', [0 0.6 0], 'FontSize', 9);
+        end
         title(S.filename, 'Interpreter', 'none');
         axes(G.ax_img); cla;
         if isfield(S, 'preview_img') && ~isempty(S.preview_img)
@@ -134,7 +181,7 @@ function loadAnalyzer(src, ~)
     G = guidata(fig);
     
     if G.curr_idx == 0
-        createDirectAnalyzer(G.Concat, G.All);
+        createDirectAnalyzer(G.Concat, G.All, G.Triggers, G.has_triggers);
     else
         idx = G.curr_idx;
         fname = G.All(idx).filename;
@@ -142,23 +189,44 @@ function loadAnalyzer(src, ~)
         
         % Use matfile even for single files for consistency/speed
         m = matfile(fpath);
-        createStandardAnalyzer(m, G.All(idx));
+        % *** NEW: Pass trigger info for this specific file ***
+        if G.has_triggers && idx <= G.Triggers.num_triggers
+            file_trigger = struct();
+            file_trigger.t_onset_sec  = G.Triggers.t_onset_sec(idx);
+            file_trigger.t_peak_sec   = G.Triggers.t_peak_sec(idx);
+            file_trigger.onset_frame  = G.Triggers.onset_frame(idx);
+            % Convert global onset frame to local frame index
+            if G.has_concat
+                seg_start = G.Concat.file_segments(idx).start_frame;
+                file_trigger.onset_frame_local = G.Triggers.onset_frame(idx) - seg_start + 1;
+                file_trigger.t_onset_local = G.Triggers.t_onset_sec(idx) - ...
+                    G.Concat.time_axis(seg_start);
+            else
+                file_trigger.onset_frame_local = G.Triggers.onset_frame(idx);
+                file_trigger.t_onset_local     = G.Triggers.t_onset_sec(idx);
+            end
+        else
+            file_trigger = [];
+        end
+        createStandardAnalyzer(m, G.All(idx), file_trigger);
     end
 end
 
 %% ======================== DIRECT ACCESS ANALYZER ========================
-function createDirectAnalyzer(Concat, All_Exps)
+function createDirectAnalyzer(Concat, All_Exps, Triggers, has_triggers)
     h = figure('Name', 'Virtual Analyzer (Direct Access)', 'Position', [100, 100, 1200, 800], ...
                'Color', 'w', 'NumberTitle', 'off', 'MenuBar', 'none');
     
     % Initialize Data
     D = struct();
-    D.Concat = Concat;
-    D.All_Exps = All_Exps;
+    D.Concat       = Concat;
+    D.All_Exps     = All_Exps;
+    D.Triggers     = Triggers;       % *** NEW ***
+    D.has_triggers = has_triggers;   % *** NEW ***
     D.curr_global_frame = 1;
     D.total_frames = Concat.total_frames;
     D.trace = Concat.trace;
-    D.time = Concat.time_axis;
+    D.time  = Concat.time_axis;
     
     % --- MATFILE CACHE ---
     D.FileMaps = cell(Concat.num_files, 1);
@@ -177,8 +245,18 @@ function createDirectAnalyzer(Concat, All_Exps)
         x = D.time(Concat.file_segments(k).start_frame);
         xline(x, 'r-');
     end
+    % *** NEW: Draw green trigger onsets on analyzer trace ***
+    if has_triggers
+        for k = 1:Triggers.num_triggers
+            if ~isnan(Triggers.t_onset_sec(k))
+                xline(Triggers.t_onset_sec(k), 'g-', 'LineWidth', 2);
+                text(Triggers.t_onset_sec(k), max(D.trace)*0.80, ...
+                     sprintf(' T%d', k), 'Color', [0 0.6 0], 'FontSize', 8);
+            end
+        end
+    end
     D.xline = xline(D.time(1), 'b-', 'LineWidth', 2);
-    title('Trace (Arrow Keys to Navigate)');
+    title('Trace  |  Arrow Keys: step   |  T: jump to nearest trigger');
     xlabel('Time (s)'); axis tight;
     set(D.ax_trace, 'ButtonDownFcn', @(s,e) traceClick(s,e,h));
 
@@ -187,7 +265,7 @@ function createDirectAnalyzer(Concat, All_Exps)
     axis image off; colormap jet; colorbar;
     D.title_h = title('Initializing...');
     
-    % --- NEW FILTERS PANEL ---
+    % --- FILTERS PANEL ---
     panel_filt = uipanel('Parent', h, 'Title', '2D Spatial Filters', ...
                          'Position', [0.75, 0.02, 0.20, 0.12], 'BackgroundColor', 'w');
                      
@@ -195,11 +273,6 @@ function createDirectAnalyzer(Concat, All_Exps)
                            'String', 'Spatial Blur (Denoise)', ...
                            'Units', 'normalized', 'Position', [0.1, 0.6, 0.8, 0.3], ...
                            'BackgroundColor', 'w', 'Callback', @(s,e) updateFrameDisplay(h, D.curr_global_frame));
-                       
-    % D.chk_thresh = uicontrol('Parent', panel_filt, 'Style', 'checkbox', ...
-    %                          'String', 'Hide Weak Signals (<0.5 SD)', ...
-    %                          'Units', 'normalized', 'Position', [0.1, 0.2, 0.8, 0.3], ...
-    %                          'BackgroundColor', 'w', 'Callback', @(s,e) updateFrameDisplay(h, D.curr_global_frame));
 
     % Slider
     D.slider = uicontrol('Style', 'slider', 'Min', 1, 'Max', D.total_frames, ...
@@ -238,22 +311,10 @@ function updateFrameDisplay(h, global_frame_idx)
             frame_data = -frame_data;
         end
         
-        % --- APPLY 2D SPATIAL FILTERS ON THE FLY ---
-        
-        % Filter 1: Spatial Blur (Low-Pass)
-        % This removes single-pixel "salt and pepper" noise
+        % Filter: Spatial Blur (Low-Pass)
         if get(D.chk_blur, 'Value')
-            % Sigma=1.5 is usually a sweet spot for 512x512 images
             frame_data = imgaussfilt(frame_data, 1.5); 
         end
-        
-        % % Filter 2: Noise Thresholding (Morphological-ish)
-        % % This hides any pixel that is effectively "background noise"
-        % if get(D.chk_thresh, 'Value')
-        %     % Assuming data is Z-Scored or dF/F. 
-        %     % We hide anything below 1.0 (weak signal) to see only strong events
-        %     frame_data(frame_data < 0.1) = 0; 
-        % end
         
         set(D.img_h, 'CData', frame_data);
         
@@ -263,8 +324,20 @@ function updateFrameDisplay(h, global_frame_idx)
     
     % 3. Update UI
     set(D.xline, 'Value', D.time(global_frame_idx));
-    set(D.title_h, 'String', sprintf('Time: %.3fs | File %d/%d (%s)', ...
-        D.time(global_frame_idx), seg_idx, D.Concat.num_files, seg.filename));
+
+    % *** NEW: Show trigger proximity in title ***
+    trig_info_str = '';
+    if D.has_triggers
+        % Find which trigger zone we are in (within ±0.5s of any onset)
+        diffs = D.time(global_frame_idx) - D.Triggers.t_onset_sec;
+        [min_dist, nearest_trig] = min(abs(diffs));
+        if min_dist < 0.5
+            trig_info_str = sprintf(' | Trigger T%d (%.3fs from onset)', ...
+                nearest_trig, diffs(nearest_trig));
+        end
+    end
+    set(D.title_h, 'String', sprintf('Time: %.3fs | File %d/%d (%s)%s', ...
+        D.time(global_frame_idx), seg_idx, D.Concat.num_files, seg.filename, trig_info_str));
     set(D.slider, 'Value', global_frame_idx);
     
     D.curr_global_frame = global_frame_idx;
@@ -296,32 +369,59 @@ function keyPressHandler(~, event, h)
             target = current + 10;
         case 'downarrow'
             target = current - 10;
+        % *** NEW: Press 'T' to jump to nearest trigger onset ***
+        case 't'
+            if D.has_triggers
+                current_time = D.time(current);
+                diffs = current_time - D.Triggers.t_onset_sec;
+                % Find the next onset AHEAD, or wrap to first
+                ahead = diffs < 0;
+                if any(ahead)
+                    [~, trig_idx] = min(abs(diffs(ahead)));
+                    ahead_indices = find(ahead);
+                    jump_trig = ahead_indices(trig_idx);
+                else
+                    jump_trig = 1; % wrap around
+                end
+                target = D.Triggers.onset_frame(jump_trig);
+                fprintf('  → Jumped to Trigger T%d at %.3fs (frame %d)\n', ...
+                        jump_trig, D.Triggers.t_onset_sec(jump_trig), target);
+            else
+                return;
+            end
         otherwise
-            return; % Ignore other keys
+            return;
     end
     
-    % Update display (function handles boundary checks)
     updateFrameDisplay(h, target);
 end
 
 %% ======================== STANDARD ANALYZER (Single File) ========================
-function createStandardAnalyzer(mObj, Meta)
+function createStandardAnalyzer(mObj, Meta, file_trigger)
     h = figure('Name', Meta.filename, 'Position', [150, 150, 1000, 700], ...
                'Color', 'w', 'MenuBar', 'none');
     
-    % Data storage for standard viewer
     D = struct();
     D.mObj = mObj;
     D.Meta = Meta;
+    D.file_trigger = file_trigger;   % *** NEW ***
     [~,~,frames] = size(mObj, 'reconstructed_movie');
     D.total_frames = frames;
     D.curr_global_frame = 1;
     D.is_single = true;
 
-    subplot(4,1,1); 
+    subplot(4,1,1); hold on;
     D.trace_h = plot(Meta.time_axis, Meta.trace, 'b-'); 
     D.xline = xline(Meta.time_axis(1), 'r-');
-    axis tight; title('Trace (Arrow Keys Enabled)');
+    % *** NEW: Draw trigger onset on single-file analyzer ***
+    if ~isempty(file_trigger) && ~isnan(file_trigger.t_onset_local)
+        xline(file_trigger.t_onset_local, 'g-', 'LineWidth', 2, 'DisplayName', 'Trigger Onset');
+        text(file_trigger.t_onset_local, max(Meta.trace)*0.85, ' Trigger', ...
+             'Color', [0 0.6 0], 'FontSize', 9);
+        fprintf('  Trigger onset at %.3fs (local), frame %d\n', ...
+                file_trigger.t_onset_local, file_trigger.onset_frame_local);
+    end
+    axis tight; title('Trace  |  Arrow Keys Enabled  |  Press T: go to trigger');
     
     subplot(4,1,[2,3,4]);
     frame1 = mObj.reconstructed_movie(:,:,1);
@@ -340,11 +440,17 @@ function singleFileUpdate(src, ~, h)
     D = guidata(h);
     f = round(get(src, 'Value'));
     
-    % Read direct
     frame_data = D.mObj.reconstructed_movie(:,:,f);
     
     set(D.img_h, 'CData', frame_data);
-    set(D.title_h, 'String', sprintf('Frame %d (%.2f s)', f, D.Meta.time_axis(f)));
+
+    % *** NEW: Show trigger proximity in single-file title ***
+    trig_str = '';
+    if ~isempty(D.file_trigger) && ~isnan(D.file_trigger.onset_frame_local)
+        dt = D.Meta.time_axis(f) - D.file_trigger.t_onset_local;
+        trig_str = sprintf(' | %.3fs from onset', dt);
+    end
+    set(D.title_h, 'String', sprintf('Frame %d (%.2f s)%s', f, D.Meta.time_axis(f), trig_str));
     set(D.xline, 'Value', D.Meta.time_axis(f));
     
     D.curr_global_frame = f;
@@ -357,9 +463,18 @@ function singleFileKeyHandler(~, event, h)
     
     switch event.Key
         case 'rightarrow', target = current + 1;
-        case 'leftarrow', target = current - 1;
-        case 'uparrow', target = current + 10;
-        case 'downarrow', target = current - 10;
+        case 'leftarrow',  target = current - 1;
+        case 'uparrow',    target = current + 10;
+        case 'downarrow',  target = current - 10;
+        % *** NEW: Press 'T' to jump to trigger onset frame ***
+        case 't'
+            if ~isempty(D.file_trigger) && ~isnan(D.file_trigger.onset_frame_local)
+                target = D.file_trigger.onset_frame_local;
+                fprintf('  → Jumped to trigger onset frame %d (%.3fs)\n', ...
+                        target, D.file_trigger.t_onset_local);
+            else
+                return;
+            end
         otherwise, return;
     end
     

@@ -5,8 +5,8 @@
 % Tried to apply spatial processing techniques
 % calculated std dev and mean and max proj of the images
 % recalculated dff (no difference in result)
-% only thing to takeway from this script is the trigger detection logic
-% rest are not that useful
+% only thing to takeway from this script is the green trigger onset 
+% detection logic rest are not that useful
 %
 % NEW FEATURES:
 %   - Concatenates 1D traces across selected files
@@ -329,21 +329,6 @@ for k = 1:num_files
             imshow(preview_img_4, []);
             title(sprintf('Std Dev across all frames Activity'));
             
-            % mov_centered = double(mov) - mean(mov, 3); 
-            % im_right = circshift(mov_centered, [0 1 0]); % Calculate Correlation approx using multiplication of neighbors
-            % im_left  = circshift(mov_centered, [0 -1 0]); % Shift image right, left, up, down
-            % im_up    = circshift(mov_centered, [-1 0 0]);
-            % im_down  = circshift(mov_centered, [1 0 0]);
-            % % Calculate average product (covariance approximation)
-            % corr_map = mean(mov_centered .* im_right + ...
-            %                 mov_centered .* im_left + ...
-            %                 mov_centered .* im_up + ...
-            %                 mov_centered .* im_down, 3);
-            % 
-            % figure;
-            % imagesc(corr_map);
-            % axis image off;
-            % title('Correlation Image (Active Neurons)');
             F_max = max(mov, [], 3); 
             F_0 = median(mov, 3); 
             F_0 = double(F_0); 
@@ -351,9 +336,6 @@ for k = 1:num_files
             dFF_map = (double(F_max) - F_0) ./ F_0;
             figure('Name', 'Delta F / F Map', 'Color', 'w');
             imagesc(dFF_map); 
-            % clim([0 2]); % Adjust this: Try [0 1] or [0 5] depending on signal strength
-            % colormap('jet'); % 'Jet' or 'Parula' works well here
-            % colorbar;
             axis image off;
             title('Max \DeltaF/F Map (Normalized Activity)');
             
@@ -361,8 +343,6 @@ for k = 1:num_files
             figure('Name', 'Harvesting Analysis', 'Color', 'w', 'Position', [150 150 1200 400]);
             
             % STEP 0: CREATE ROBUST MASK (The Key Fix)
-            % imbinarize(mat2gray(...)) automatically finds the best threshold 
-            % to separate bright signal from dark background.
             active_mask = imbinarize(mat2gray(dFF_map)); 
             
             % Clean up the mask: Fill holes inside neurons, remove tiny noise specks
@@ -370,24 +350,19 @@ for k = 1:num_files
             active_mask = bwareaopen(active_mask, 20); % Remove spots < 20 pixels
             
             % STEP 1: GRADIENT (Weighted)
-            % We multiply by the mask so the background turns pure black
             dFF_smooth = medfilt2(dFF_map, [3 3]); 
             [Gmag, ~] = imgradient(dFF_smooth);
             Gmag_clean = Gmag .* double(active_mask); 
             
             subplot(1, 3, 1);
             imagesc(Gmag_clean);
-            % Focus contrast only on the active parts
             clim([0 prctile(Gmag(active_mask), 95)]); 
             colormap(gca, 'hot'); 
             axis image off;
             title('1. Spatial Gradient (Active Borders)');
             
             % STEP 2: WATERSHED (Masked)
-            % 1. Smooth Gmag slightly so neurons don't break into tiny pieces
-            % 2. Run Watershed
             L = watershed(imgaussfilt(Gmag, 4.0)); 
-            % 3. APPLY MASK: Force background to be Black (0)
             L(~active_mask) = 0; 
             
             L_rgb = label2rgb(L, 'jet', 'k', 'shuffle'); 
@@ -722,6 +697,21 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
         
         % Parameters
         lookback_window_sec = 0.20; % Look 200ms before peak for the rise
+
+        % *** NEW: Pre-allocate Triggers struct for saving ***
+        Triggers = struct();
+        Triggers.method         = 'TangentProjection';
+        Triggers.lookback_sec   = lookback_window_sec;
+        Triggers.num_triggers   = num_segments;
+        Triggers.file_index     = zeros(num_segments, 1);
+        Triggers.filename       = cell(num_segments, 1);
+        Triggers.t_onset_sec    = nan(num_segments, 1);  % Green marker (the trigger)
+        Triggers.t_peak_sec     = nan(num_segments, 1);  % Red star
+        Triggers.t_maxslope_sec = nan(num_segments, 1);  % Blue circle
+        Triggers.peak_amplitude = nan(num_segments, 1);
+        Triggers.onset_frame    = nan(num_segments, 1);  % Global frame index of onset
+        Triggers.fs             = Fs_concat;
+        Triggers.creation_date  = datestr(now);
         
         for k = 1:num_segments
             % 1. Get Segment Indices
@@ -756,6 +746,17 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
             % Formula: t_onset = t_slope - (amplitude / slope)
             % Note: We assume baseline is roughly 0 (Z-scored). 
             t_onset = t_slope - (amp_at_slope / (slope_val * Fs_concat)); 
+
+            % *** NEW: Store trigger info for this segment ***
+            Triggers.file_index(k)     = k;
+            Triggers.filename{k}       = concat_metadata.file_segments(k).filename;
+            Triggers.t_onset_sec(k)    = t_onset;
+            Triggers.t_peak_sec(k)     = t_peak;
+            Triggers.t_maxslope_sec(k) = t_slope;
+            Triggers.peak_amplitude(k) = peak_amp;
+            % Convert onset time to nearest global frame index (clamp to valid range)
+            onset_frame_idx = round(t_onset * Fs_concat) + 1;
+            Triggers.onset_frame(k)    = max(1, min(onset_frame_idx, length(time_concat)));
             
             % --- PLOTTING ---
             yyaxis left;
@@ -776,6 +777,11 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
             fprintf('    - File %d: Peak=%.3fs | MaxSlope=%.3fs | Calc.Onset=%.3fs\n', ...
                     k, t_peak, t_slope, t_onset);
         end
+
+        % *** NEW: Store Triggers into the Concatenated_Recording struct ***
+        Concatenated_Recording.Triggers = Triggers;
+        fprintf('  ✓ Triggers stored in Concatenated_Recording.Triggers\n');
+        fprintf('    Fields: t_onset_sec | t_peak_sec | t_maxslope_sec | onset_frame | peak_amplitude\n\n');
         
         % --- Final Formatting ---
         title('Smart Onset Detection: Peak (Red) → Max Slope (Blue) → Onset (Green)', 'FontSize', 12);
@@ -785,7 +791,7 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
         hold on;
         h1 = plot(nan, nan, 'r*', 'MarkerSize', 10, 'DisplayName', 'Signal Peak');
         h2 = plot(nan, nan, 'bo', 'MarkerSize', 8, 'DisplayName', 'Max Slope Point');
-        h3 = plot(nan, nan, 'gs', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Calculated Onset');
+        h3 = plot(nan, nan, 'gs', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Calculated Onset (Trigger)');
         
         legend([h_sig, h_deriv, h1, h2, h3], 'Location', 'best');
         grid on; axis tight;
@@ -804,6 +810,15 @@ fprintf('Saving results to: %s\n', CONFIG.output_file);
 if do_concat && exist('Concatenated_Recording', 'var')
     save(CONFIG.output_file, 'All_Experiments', 'CONFIG', 'Concatenated_Recording');
     fprintf('  ✓ Saved individual files + concatenated recording\n');
+    % *** NEW: Also save a standalone Triggers variable for easy Step 2 access ***
+    if isfield(Concatenated_Recording, 'Triggers')
+        Triggers = Concatenated_Recording.Triggers; %#ok<NASGU>
+        save(CONFIG.output_file, 'Triggers', '-append');
+        fprintf('  ✓ Triggers also saved as top-level variable for Step 2\n');
+        fprintf('    → Access via: load(''%s'', ''Triggers'')\n', CONFIG.output_file);
+        fprintf('    → Onset times: Triggers.t_onset_sec  (one per file)\n');
+        fprintf('    → Onset frames: Triggers.onset_frame (global, concat timeline)\n');
+    end
 else
     save(CONFIG.output_file, 'All_Experiments', 'CONFIG');
     fprintf('  ✓ Saved individual files only\n');
