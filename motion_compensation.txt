@@ -1,0 +1,343 @@
+================================================================================
+PART OF VSD IMAGING PIPELINE
+VSD Motion Correction Pipeline
+================================================================================
+
+Reference & Toolbox
+-------------------
+The motion correction approach implemented in these scripts is based on the
+Flow-Registration method described in:
+
+  Flotho, P., Nomura, S., Kuhn, B., & Strauss, D. J. (2022).
+  "Software for non-parametric image registration of 2-photon imaging data."
+  Journal of Biophotonics, 15(8), e202100330.
+  DOI: https://doi.org/10.1002/jbio.202100330
+
+The Flow-Registration MATLAB toolbox and ImageJ/FIJI plugin are openly
+available at:
+  GitHub: https://github.com/phflot/flow_registration
+
+
+================================================================================
+
+Overview
+--------
+This pipeline performs motion correction on Voltage-Sensitive Dye (VSD) imaging
+data stored in HDF5 (.h5 / .hdf5) format. It is built around the external
+Flow-Registration toolbox and consists of two MATLAB scripts that work together:
+a batch runner and a core processing function. Input files are expected to be
+raw .h5 files converted from .blk files.
+
+--------------------------------------------------------------------------------
+vsd_batch_runner.m (RUNS THE SCRIPT BELOW IN BATCH FOR PROCESSING SEVERAL FILES)
+--------------------------------------------------------------------------------
+Purpose:
+  Entry point for processing multiple VSD files in one go. It opens a file
+  selection dialog, lets you pick one or more HDF5 files, and then calls
+  vsd_motion_correct.m on each file sequentially using a shared protocol
+  configuration defined at the top of the script.
+
+When to use it:
+  Use this script when you have a session's worth of recordings to correct and
+  want to apply the same settings to all of them without running each file
+  manually. It is the recommended starting point for day-to-day use.
+
+Key configurable settings (edit the config struct at the top of the script):
+  - DatasetName      : Name of the HDF5 dataset to read (default: 'image_stack')
+  - OutputFolder     : Where corrected files will be saved
+                       (default: 'data/batch_output500')
+  - ReferenceFrames  : Frame range (in original frame numbering) used as the
+                       motion reference (default: 70:200)
+  - OF (struct)      : Optical flow parameters passed to the Flow-Registration
+                       toolbox. Fields and their defaults are:
+                         alpha           = 1.0
+                         sigma           = [2.0, 2.0, 0.2;   (Struct: X, Y, T)
+                                            1.0, 1.0, 0.1]   (Func:   X, Y, T)
+                         weight          = [0.8, 0.2]
+                         quality_setting = 'quality'
+                         bin_size        = 1
+                         buffer_size     = 100
+                         save_w          = true
+                         save_meta_info  = true
+                         verbose         = true
+
+File selection:
+  - Opens a uigetfile dialog filtered to *.h5 and *.hdf5 files.
+  - Supports multi-file selection via Ctrl/Shift click ('MultiSelect','on').
+  - If only one file is selected, it is internally converted to a cell array
+    for uniform handling in the loop.
+  - Cancelling the dialog exits cleanly with a message.
+
+Processing loop behaviour:
+  - Iterates over all selected files (1 to N), printing a header for each.
+  - Calls vsd_motion_correct() with the shared config for every file.
+  - On success, prints a SUCCESS message with the filename.
+  - On failure, catches the MATLAB exception (ME), prints the error message
+    in red (using fprintf(2,...)) and continues to the next file — no crash.
+  - Prints a final summary footer when all files are done.
+  - Optional: error log saving to disk is noted as a placeholder in the catch
+    block for future extension.
+
+Output:
+  All file-level outputs are delegated to vsd_motion_correct.m (see Script 2).
+  The batch runner itself does not write any files directly.
+
+--------------------------------------------------------------------------------
+vsd_motion_correct.m (EXCELLENT FUNCTION SCRIPT, WORKS AS INTENDED, VERY ROBUST)
+--------------------------------------------------------------------------------
+Purpose:
+  Core processing function. Takes a single HDF5 file and runs the full VSD
+  motion correction pipeline on it. This includes: loading and validating data,
+  automatically classifying frames as structural or functional, computing
+  optical-flow-based displacement fields via the Flow-Registration toolbox,
+  applying corrections, and saving a consolidated output file.
+  The output filename is derived directly from the input filename with the
+  suffix '_vsd_corrected.h5' appended.
+
+When to use it:
+  Called automatically by vsd_batch_runner.m, or directly from the command
+  line for single-file processing with fine-grained parameter control.
+
+Usage syntax:
+  vsd_motion_correct('file.h5', ...
+      'DatasetName',          'image_stack', ...
+      'OutputFolder',         'data/motion_corrected', ...
+      'ReferenceFrames',      80:200, ...
+      'FlowRegistrationPath', 'C:/flow_registration-main', ...
+      'OF', struct(...));
+
+Input parameters (name-value pairs):
+  - input_h5_path        : (required, positional) Full path to the .h5 input
+                           file. Validated to exist before processing begins.
+  - DatasetName          : Name of the dataset inside the HDF5 file to read.
+                           Default: 'image_stack'. The script checks available
+                           dataset names and throws a descriptive error if the
+                           specified one is missing.
+  - OutputFolder         : Destination folder for all outputs.
+                           Default: 'data/motion_corrected'.
+                           Created automatically if it does not exist.
+  - ReferenceFrames      : Numeric vector of frame indices (in original
+                           full-stack numbering) to use as the motion reference.
+                           Empty [] triggers automatic selection of the middle
+                           portion of structural frames (37.5% to 62.5%).
+  - FlowRegistrationPath : Optional path to the Flow-Registration toolbox root
+                           folder. Added to the MATLAB path via addpath() if
+                           provided and valid. A warning is issued (not an
+                           error) if the folder does not exist.
+  - OF                   : Struct of optical flow settings. Any missing fields
+                           fall back to defaults via getfield_safe(). Defaults:
+                             alpha           = 1.6
+                             sigma           = [1.5, 1.5, 0.1;
+                                                1.5, 1.5, 0.1]
+                             weight          = [0.8, 0.2]
+                             quality_setting = 'quality'
+                             bin_size        = 1
+                             buffer_size     = 100
+                             save_w          = true
+                             save_meta_info  = true
+                             verbose         = true
+
+Pipeline steps (in order):
+  -----------------------------------------------------------------------
+  STEP 1 — INPUT PARSING
+  -----------------------------------------------------------------------
+  Uses MATLAB's inputParser to validate and extract all arguments. Converts
+  DatasetName, OutputFolder, and FlowRegistrationPath to char arrays for
+  compatibility. Validates that the input HDF5 file exists on disk. Creates
+  the output folder if needed (with error if mkdir fails). Derives the output
+  base name from the input file using fileparts().
+
+  -----------------------------------------------------------------------
+  STEP 2 — DATA LOADING & VALIDATION
+  -----------------------------------------------------------------------
+  Reads h5info() to list available datasets and validates the requested
+  dataset exists before calling h5read(). Enforces that data is exactly
+  3-dimensional (H x W x T). Handles three possible axis orientations:
+    - If size(1) == 1500 → frames in first dim → permute to [2,3,1]
+    - If size(3) == 1500 → frames in third dim → already correct
+    - If size(2) == 1500 → frames in second dim → permute to [1,3,2]
+  Note: the value 1500 is hardcoded as the expected frame count for the
+  orientation detection heuristic. After reorientation the dimensions are
+  confirmed as [height, width, total_frames]. Requires a minimum of 4 frames.
+
+  -----------------------------------------------------------------------
+  STEP 3 — STRUCTURAL / FUNCTIONAL FRAME CLASSIFICATION
+  -----------------------------------------------------------------------
+  Converts data to double for computation. For every frame, calculates:
+    - mean intensity across all pixels
+    - standard deviation across all pixels
+    - contrast = std / max(mean, eps)   [eps avoids division by zero]
+  Iterates through consecutive frame PAIRS (t=1,3,5,...):
+    - The higher-contrast frame of each pair → assigned as structural
+    - The lower-contrast frame of each pair  → assigned as functional
+  This mirrors the alternating illumination pattern typical in dual-channel
+  VSD acquisition (e.g. alternating reference and activity frames).
+  Builds two index arrays: structural_indices and functional_indices.
+  Extracts two separate 3D stacks: structural_frames and functional_frames.
+  Throws an error if either index array is empty (data quality check).
+  Prints the count of assigned structural and functional frames.
+
+  -----------------------------------------------------------------------
+  STEP 4 — REFERENCE FRAME MAPPING INTO STRUCTURAL INDEX SPACE
+  -----------------------------------------------------------------------
+  If ReferenceFrames is empty:
+    - Calculates ref_lo = floor(0.375 * nStructural)
+    - Calculates ref_hi = ceil(0.625  * nStructural)
+    - Uses ref_lo:ref_hi as the reference index range (middle ~25%)
+    - Requires at least 3 structural frames (error otherwise)
+
+  If ReferenceFrames is provided:
+    - Rounds and clamps to valid range [1, total_frames]
+    - Finds the intersection with structural_indices (i.e. only frames
+      that were actually classified as structural are kept)
+    - Converts those global frame indices to positions within the
+      structural_frames stack using ismember()
+    - Falls back to the automatic middle-portion if the intersection
+      is empty (with a warning message)
+  Prints the number of reference frames that will be used.
+
+  -----------------------------------------------------------------------
+  STEP 5 — TEMPORARY MULTICHANNEL HDF5 CREATION
+  -----------------------------------------------------------------------
+  Writes a temporary file: <OutputFolder>/temp_multichannel.h5
+  Deletes any pre-existing version of this file before writing.
+  Saves:
+    /ch1 → structural_frames  (preserves original datatype)
+    /ch2 → functional_frames  (preserves original datatype)
+  This is the input format expected by the Flow-Registration toolbox.
+  Any write failure triggers cleanup and a hard error.
+
+  -----------------------------------------------------------------------
+  STEP 6 — OPTICAL FLOW OPTIONS CONFIGURATION
+  -----------------------------------------------------------------------
+  Calls OF_options() with all parameters from the OF struct. Parameters
+  passed include: input_file, output_path, output_format ('HDF5'), alpha,
+  sigma, weight, quality_setting, bin_size, buffer_size, reference_frames
+  (the mapped structural indices), save_w, save_meta_info, verbose.
+  Missing OF fields are filled using getfield_safe() with defaultOF values.
+  After configuration, performs a reader sanity check via
+  options.get_video_file_reader() and prints: channel count, frame count,
+  spatial dimensions (H x W), and data type. Failure triggers cleanup.
+
+  -----------------------------------------------------------------------
+  STEP 7 — MOTION CORRECTION (Flow-Registration)
+  -----------------------------------------------------------------------
+  Calls compensate_recording(options) — the main Flow-Registration engine.
+  This computes per-frame displacement fields and applies backwards warping
+  to both channels. Any failure triggers temp file cleanup and re-throws
+  the error.
+
+  -----------------------------------------------------------------------
+  STEP 8 — OUTPUT COLLECTION & CONSOLIDATION
+  -----------------------------------------------------------------------
+  Looks for corrected output files in this priority order:
+    1. ch1.hdf5 and ch2.hdf5 both present in OutputFolder
+       → reads /ch1 and /ch2 from the respective files
+    2. compensated.hdf5 present in OutputFolder (fallback)
+       → reads /ch1 and /ch2 from the single combined file
+       → errors if these dataset names are not found inside
+    3. Neither found → hard error
+
+  Validates that corrected outputs are non-empty and warns if output
+  dimensions differ from input dimensions.
+
+  Saves the consolidated output file:
+    <OutputFolder>/<original_basename>_vsd_corrected.h5
+  Deletes any pre-existing output file with the same name before writing.
+  Datasets written:
+    /structural → motion-corrected structural frames
+    /functional → motion-corrected functional frames
+  Preserves the datatype of the corrected arrays.
+
+  -----------------------------------------------------------------------
+  STEP 9 — OPTIONAL MOTION STATISTICS
+  -----------------------------------------------------------------------
+  Checks for <OutputFolder>/statistics.mat (produced by Flow-Registration).
+  If found, loads and prints any of the following fields that are present
+  and non-empty:
+    - mean_disp        → Mean ± Std displacement in pixels
+    - max_disp         → Maximum displacement in pixels
+    - mean_div         → Mean ± Std divergence
+    - mean_translation → Mean ± Std translation in pixels
+  Silently skips if the file cannot be loaded.
+
+  -----------------------------------------------------------------------
+  STEP 10 — CLEANUP
+  -----------------------------------------------------------------------
+  Deletes temp_multichannel.h5 via the cleanup_temp() helper regardless
+  of whether the pipeline succeeded or failed (called in all error paths
+  too). Prints confirmation when the temp file is removed; warns if
+  deletion fails. Ends with a reminder to run single_trial or
+  trial_averaging scripts on the corrected output.
+
+Internal helper functions:
+  - getfield_safe(s, name, default) : Returns s.(name) if the field exists,
+                                      otherwise returns default. Used to safely
+                                      unpack the OF struct without errors on
+                                      missing fields.
+  - cleanup_temp(temp_file)         : Deletes the temporary multichannel HDF5
+                                      file if it exists. Warns on failure.
+  - ternary(cond, a, b)             : Returns a if cond is true, b otherwise.
+                                      Kept in the file for potential future use
+                                      but not called in the current pipeline.
+
+Output files (all written to OutputFolder):
+  - <basename>_vsd_corrected.h5  : Main output. Contains /structural and
+                                   /functional datasets (motion-corrected).
+  - w.h5                         : Displacement fields from Flow-Registration.
+                                   WARNING: overwritten on every run. Rename
+                                   or copy this file to preserve it across
+                                   multiple recordings.
+  - statistics.mat               : Motion statistics (if generated by toolbox).
+  - ch1.hdf5 / ch2.hdf5         : Intermediate per-channel corrected outputs
+                                   from the toolbox (may or may not be present
+                                   depending on toolbox version).
+  - compensated.hdf5             : Alternative consolidated toolbox output
+                                   (fallback if ch1/ch2 files are absent).
+  - temp_multichannel.h5         : Temporary input file for the toolbox.
+                                   Deleted automatically after each run.
+
+Known limitations & notes:
+  - The frame-count heuristic for axis reorientation is hardcoded to 1500.
+    If your recordings have a different frame count, the reorientation logic
+    in Step 2 may not trigger correctly — verify data orientation manually.
+  - Displacement field output (w.h5) is overwritten each run. Rename it
+    immediately after processing if you need to retain it per file.
+  - The Flow-Registration toolbox must be installed and on the MATLAB path,
+    or its root path passed via FlowRegistrationPath.
+  - A C++ compiler is required for the toolbox (tested from MATLAB R2018a+).
+  - Input files are expected to be raw .h5 files converted from .blk files.
+  - Run single_trial or trial_averaging scripts after this pipeline completes.
+
+--------------------------------------------------------------------------------
+Typical Workflow
+--------------------------------------------------------------------------------
+  1. Install the Flow-Registration toolbox from:
+       https://github.com/phflot/flow_registration
+     Ensure a C++ compiler is available and the toolbox is compiled.
+
+  2. Edit the config block at the top of vsd_batch_runner.m:
+       - Set OutputFolder to your desired output directory.
+       - Set ReferenceFrames to the stable baseline frame range for your
+         recording (e.g. pre-stimulus period).
+       - Adjust OF parameters if needed (alpha, sigma, weight, etc.).
+
+  3. Run vsd_batch_runner.m in MATLAB.
+
+  4. Select one or more .h5 / .hdf5 files in the dialog (Ctrl/Shift for
+     multi-select).
+
+  5. Monitor the console output for per-file progress:
+       - Structural/functional frame counts
+       - Reference frame mapping confirmation
+       - Reader sanity check (channels, frames, size, type)
+       - Motion statistics (mean/max displacement, divergence, translation)
+       - SUCCESS or FAILED status per file
+
+  6. Find corrected files in OutputFolder:
+       <original_filename>_vsd_corrected.h5  (one per input file)
+
+  7. If needed, copy/rename w.h5 before processing the next file.
+
+  8. Run your single_trial or trial_averaging script on the corrected outputs.
+

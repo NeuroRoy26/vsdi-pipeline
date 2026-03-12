@@ -1,0 +1,190 @@
+================================================================================
+PART OF VSD IMAGING PROCESSING PIPELINE
+================================================================================
+
+ALL THE SCRIPTS HAVE BETTER VERSION FOR THE PURPOSE THEY WERE MADE FOR ORIGINALLY
+BUT IF USING FOR PCA ICA SPECIFICALLY THIS IS GREAT, NOT FOR DECOMPOSITION
+ALL THE SCRIPTS MUST BE RUN ON FRACTIONAL CHANGE CALCULATED FILES
+
+This contains a comprehensive suite of MATLAB scripts designed for 
+processing, analyzing, and visualizing optical functional imaging data (e.g., 
+Voltage-Sensitive Dye or Calcium imaging). The pipeline handles everything from 
+raw data denoising and PCA/ICA signal separation, to Multi-Electrode Array (MEA) 
+alignment, batch trial comparisons, advanced curve fitting, and publication export.
+--------------------------------------------------------------------------------
+1. PRE-PROCESSING & DECOMPOSITION (PCA / ICA)
+--------------------------------------------------------------------------------
+These scripts form the mathematical heart of the pipeline, separating true 
+biological signals from camera noise, drift, and cardiovascular artifacts.
+
+* PCAICA_line_denoising.m (DONT USE, NOT THAT GOOD)
+  - An all-in-one pre-processor that removes camera stripes by subtracting the median column profile.
+  - Applies 2D Gaussian smoothing to reduce static spatial noise.
+  - Runs PCA and FastICA to separate signals, generating diagnostic figures.
+
+* PCA_ICA_decomp.m (WORKS EXCELLENT, BUT REPLACE BY NMF_decomp.m)
+  - The core decomposition engine. Flattens the dF/F movie and runs PCA, keeping the top 7 principal components.
+  - Runs spatial FastICA to isolate statistically independent components.
+  - Auto-corrects signal polarity using spatial skewness and calculates metrics like dominant frequency and kurtosis.
+
+--------------------------------------------------------------------------------
+2. RECONSTRUCTION & COMPONENT DIAGNOSTICS
+--------------------------------------------------------------------------------
+Tools to selectively rebuild the cleaned video from independent components.
+
+* reconstruct.m (WORKS GREAT)
+  - Run immediately after decomposition. Prompts the user to select specific ICA components to keep or exclude.
+  - Rebuilds the cleaned video using vectorized matrix multiplication and calculates the variance explained by the selected components.
+  - Saves the cleaned movie to a .mat file.
+
+* ICA_recon_analyse.m (DIAGNOSTIC RECONSTRUCTION)
+  - A diagnostic viewer that reconstructs each selected component individually.
+  - Features an interactive GUI to view spatial maps and time courses side-by-side.
+  - Prints an automated "Action Suggestion" table (e.g., "DETREND" or "INVERT") based on skewness, kurtosis, and baseline drift metrics.
+
+* ICA_again.m (TO PERFORM ICA AGAIN TO DECOMPOSE AGAIN, ONLY IF REQUIRED)
+  - A surgical "review and fix" tool for files where 2 components are still mixed.
+  - Runs a secondary SVD+ICA decomposition specifically on those two components to force them apart.
+  - Includes a GUI with polarity buttons to flip the entire component (trace + map) or just invert the map colors, saving the fixed result.
+
+--------------------------------------------------------------------------------
+3. POST-RECONSTRUCTION & VISUALIZATION
+--------------------------------------------------------------------------------
+Prepares the reconstructed clean movie for high-quality visual presentation.
+
+* post_reconstruction.m
+  - The base analytical script. Checks polarity against raw data and applies model-based detrending (linear, quadratic, exponential) to mathematically remove dye bleaching.
+  - Applies robust Z-score normalization.
+
+* post_reconstruction_v2.m & v3.m
+  - Focuses on high-quality visualization by applying baseline subtraction and dynamic noise floor/saturation thresholds (e.g., clipping the bottom 40% and top 1.5%).
+  - v3 adds support for loading a structural background image from an HDF5 file to overlay functional heatmaps.
+
+* post_reconstruction_v4.m (BEST VERSION, RUN AFTER reconstruct.m)
+  - The most advanced visualization script. Includes all visual features and extracts, plots, and optionally saves the 1D global signal trace.
+
+--------------------------------------------------------------------------------
+4. EVENT TIMING & TRIGGER DETECTION (OBSOLETE)
+--------------------------------------------------------------------------------
+Used when imaging data lacks external hardware triggers.
+
+* calc_internal_trigger.m & calc_internal_trigger_v2.m (NOT THAT USEFUL, LATER SCRIPT USES BETTER TRIGGER LOGIC)
+  - Detects stimulus events by applying a bandpass filter (0.1 to 75 Hz) and finding frames that exceed a Z-score threshold of 3.5 on the signal derivative.
+  - v2 includes baseline subtraction, a 3-panel interactive GUI, and an auto-polarity check using signal skewness.
+
+--------------------------------------------------------------------------------
+5. SPATIAL ANALYSIS & ROI EXTRACTION (NOT THAT USEFUL)
+--------------------------------------------------------------------------------
+Tools to extract targeted time-series data from spatial regions.
+
+* generate_ROI.m & generate_multi_ROI.m
+  - Generates a 2D activation map using a Maximum Intensity Projection (MIP).
+  - Allows the user to draw interactive polygons to extract mean signal traces.
+  - The multi_ROI version allows up to 10 distinct ROIs, plotting their traces together for direct comparison.
+
+* Combined_Signal_Viewer.m
+  - Breaks the clean spatial map into a dense 6x6 grid (36 discrete regions).
+  - Extracts, bandpass filters (0.1 to 75 Hz), and Z-score normalizes the signal for all 36 regions.
+  - Provides an interactive GUI to view all 36 traces simultaneously next to the spatial map.
+
+--------------------------------------------------------------------------------
+6. MULTI-ELECTRODE ARRAY (MEA) INTEGRATION (FOUNDATIONAL SCRIPT FOR LATER SCRIPTS)
+--------------------------------------------------------------------------------
+Tools for physically aligning simultaneous electrical (MEA) and optical recordings.
+
+* MEA_overlay.m (USEFUL BUT BETTER VERSIO EXISTS IN VSD_MEA.m)
+  - Mathematically maps the geometry of a FlexMEA72 grid onto the brain image using a physical micron-to-pixel scale.
+  - Automatically masks out specific GND and REF electrodes based on hardware specifications.
+
+* MEA_Interactive_GUI.m (USEFUL BUT BETTER VERSIO EXISTS IN VSD_MEA.m)
+  - An interactive visual aligner for the MEA grid.
+  - Provides UI sliders to dynamically shift the X/Y offsets and rotation of the grid over the VSD heatmap.
+  - Exports the exact pixel coordinates of every electrode to a 'MEA_Map.mat' table for perfectly matched trace extraction.
+
+--------------------------------------------------------------------------------
+7. 1D TRACE ANALYSIS & ADVANCED MATH
+--------------------------------------------------------------------------------
+* postprocessing.m (ONLY FOR FITTING CURVE, THAT'S ALL)
+  - A heavy-duty signal processing script for 1D global traces.
+  - Computes FFT and applies a strict 50Hz Notch filter alongside a bandpass filter.
+  - Splits data into pre/post-stimulus zones and fits a constrained exponential decay model (y = a*exp(-bx) + c) using a Trust-Region algorithm to calculate exact time constants (tau).
+
+--------------------------------------------------------------------------------
+8. BATCH PROCESSING & MULTI-TRIAL COMPARISON (GENERATES VARIOUS WATERALL AND KYMOGRAPH PLOTS)
+--------------------------------------------------------------------------------
+Scripts to align, stack, and prove reliability across multiple experimental trials.
+
+* batch_PLOT.m
+  - Loads multiple 1D global traces (global_trace_*.mat).
+  - Applies a bandpass filter and Z-score normalization so weak trials are visible alongside strong ones.
+  - Plots the traces as a stacked 2D waterfall heatmap with an averaged trace on top.
+
+* batch_spatialPLOT.m
+  - Compares spatial wave propagation across multiple reconstruction files.
+  - Isolates the top 15% most active pixels and sorts them by activation latency.
+  - Plots sorted pixels side-by-side to verify neural wave patterns across recordings.
+
+* vsd_batch_dff.m
+  - Selects multiple full .h5 video files, resizes them to match, flattens them, and stitches them vertically into a single macro-level filmstrip heatmap.
+
+--------------------------------------------------------------------------------
+9. QUALITY CONTROL & PUBLICATION EXPORT
+--------------------------------------------------------------------------------
+Tools to verify data integrity and generate final output figures.
+
+* analysis_noPCAICA.m (TO CHECK IF PCA-ICA WAS NECESSARY)
+  - Acts as a scientific control. Loads raw .h5 files WITHOUT applying PCA/ICA to verify if machine learning decomposition is beneficial.
+  - Splits the video into a 5x5 spatial grid and calculates standard deviation and correlation maps.
+
+* beforeafter_comparison.m (DIAGNOSTIC SCRIPT)
+  - A lightweight GUI utility to scrub through and visually compare "Raw" and "Processed" .h5 files side-by-side to ensure signal integrity.
+
+* inspect_frames_gui.m (WORKS ON DOUBLE THRESHOLDING METHOD FILES)
+  - A specialized GUI to verify thresholding logic.
+  - Displays the raw dF/F movie alongside 3x and 4x binary masks, overlaying them with red/green/blue color coding for precise pixel inspection.
+
+* vsd_dff.m (REPLACE BY BETTER SCRIPT)
+  - Loads processed *_dff.h5 files and creates a Space-Time Heatmap by collapsing the horizontal dimension.
+  - Generates a "smart subsampled" image montage (max 250 tiles) to view activity sequentially.
+
+* PCA_figure_generator.m 
+  - Generates publication-quality figures for PCA results.
+  - Creates 2D scatter plots of principal component projections (e.g., PC1 vs PC2) color-coded by time.
+  - Generates Scree plots showing individual and cumulative variance explained, with 95% and 99% threshold markers.
+
+================================================================================
+SUGGESTED WORKFLOW
+================================================================================
+For a standard analysis session, it is recommended to run the scripts in the 
+following logical order:
+
+STEP 1: Signal Decomposition
+* Run: PCA_ICA_decomp.m
+* Purpose: Break your noisy raw video down into statistically independent components. (Optional: Check analysis_noPCAICA.m first as a control).
+
+STEP 2: Signal Reconstruction & Diagnostics
+* Run: reconstruct.m -> followed by -> ICA_recon_analyse.m
+* Purpose: Select the true biological components to rebuild a clean video. Use the diagnostic viewer to ensure components don't need detrending. (Use ICA_again.m if components are stubbornly mixed).
+
+STEP 3: Event Timing (If missing hardware triggers)
+* Run: calc_internal_trigger_v2.m
+* Purpose: Mathematically find the exact frames where the stimulus occurred.
+
+STEP 4: Scaling and Visualization
+* Run: post_reconstruction_v4.m
+* Purpose: Apply baseline subtraction, adjust colormap thresholds, generate montages, and save your global 1D trace.
+
+STEP 5: Advanced Math & Output (Parallel Paths)
+* PATH A (1D Signals): Run postprocessing.m to fit exponential decay curves to your saved traces.
+* PATH B (Spatial): Run generate_multi_ROI.m or Combined_Signal_Viewer.m to extract specific regional data.
+* PATH C (MEA Integration): Run MEA_Interactive_GUI.m to align an electrophysiology grid and export the map.
+
+STEP 6: Batch Comparisons (For multiple completed trials)
+* Run: batch_PLOT.m (for 1D traces) or batch_spatialPLOT.m (for spatial wave comparisons).
+
+STEP 7: Quality Assurance & Publication
+* QA: Run inspect_frames_gui.m or beforeafter_comparison.m to verify pipeline integrity.
+* Export: Run PCA_figure_generator.m to generate final scatter and Scree plots for your paper.
+
+================================================================================
+END OF README

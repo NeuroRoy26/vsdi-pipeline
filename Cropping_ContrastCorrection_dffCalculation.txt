@@ -1,0 +1,338 @@
+================================================================================
+PART OF VSD IMAGING PROCESSING PIPELINE
+================================================================================
+Language: MATLAB
+Purpose: Preprocessing, dF/F computation, and visualization of Voltage-Sensitive
+         Dye (VSD) imaging data stored in HDF5 (.h5) format.
+
+(MOST OF THE SCRIPTS ARE ROBUST AND USEFUL)
+
+--------------------------------------------------------------------------------
+1. vsd_interactive_crop.m (WORKS AS INTENDED)
+--------------------------------------------------------------------------------
+PURPOSE:
+    First step in the pipeline. Opens a VSD HDF5 file and launches an interactive
+    GUI for spatially cropping the image stack. Primarily used to remove edge
+    artifacts and salvage usable data from recordings.
+
+HOW IT WORKS:
+    - Automatically detects the dataset name within the HDF5 file.
+    - Reorients the data to [Height x Width x Frames] format if needed.
+    - Displays an averaged preview of the first frames for better visibility.
+    - User draws a rectangle over the region of interest and double-clicks
+      to confirm the selection.
+    - Validates and applies the crop, then saves the result.
+
+INPUT:
+    - Raw VSD HDF5 file (.h5 or .hdf5)
+
+OUTPUT:
+    - A new file with the suffix _cropped.h5 in the same directory.
+
+USAGE:
+    vsd_interactive_crop('path/to/file.h5')
+    vsd_interactive_crop()   % Opens a file browser
+
+
+--------------------------------------------------------------------------------
+2. vsd_interactive_contrast.m (WORKS AS INTENDED)
+--------------------------------------------------------------------------------
+PURPOSE:
+    Second step in the pipeline. Handles contrast normalization for VSD data,
+    which alternates between a "structural" (bright, anatomical) channel and a
+    "functional" (dim, activity-related) channel on alternating frames.
+
+HOW IT WORKS:
+    STAGE 1 - Pattern Explorer:
+    - Displays a scrollable frame viewer (first 200 frames).
+    - User scrolls to a representative frame and labels it as either
+      STRUCTURAL or FUNCTIONAL.
+    - The script infers the full alternating channel pattern from that choice.
+
+    STAGE 2 - Contrast Tuner:
+    - Displays side-by-side previews of both channel types.
+    - Independent Low/High contrast sliders for each channel.
+    - On saving, each channel is normalized to the 16-bit range (0-65535)
+      and written to a new file.
+
+INPUT:
+    - Cropped HDF5 file (*_cropped.h5)
+
+OUTPUT:
+    - A new file with the suffix _contrast.h5 in the same directory.
+
+USAGE:
+    vsd_interactive_contrast('path/to/file_cropped.h5')
+    vsd_interactive_contrast()   % Opens a file browser
+
+
+--------------------------------------------------------------------------------
+3. run_single_trials.m (WORKS AS INTENDED)
+--------------------------------------------------------------------------------
+PURPOSE:
+    Processes each selected motion-corrected trial independently. Computes
+    dF/F (fractional change in fluorescence) and applies spatial filtering,
+    saving one output file per input file.
+
+HOW IT WORKS:
+    - Loads the /functional dataset from each HDF5 file.
+    - Computes F0 (baseline) from a user-defined frame window (default: 1:750).
+    - Computes dF/F = (F - F0) / F0 for each pixel across time.
+    - Optionally applies temporal binning to reduce frame count.
+    - Applies a 2D median filter (default: 3x3) to reduce shot noise.
+    - Applies a Gaussian spatial filter (default: sigma=1) for smoothing.
+    - Saves functional dF/F data and copies structural data if available.
+
+KEY PARAMETERS (editable in script):
+    p.Bin         = 1         % Temporal binning factor
+    p.Sigma       = 1         % Gaussian filter sigma
+    p.MedianWin   = 3         % Median filter window size
+    p.BaselineIdx = 1:750     % Frames used to compute F0
+
+INPUT:
+    - Motion-corrected HDF5 files (multi-select supported)
+
+OUTPUT:
+    - One file per input with the suffix _dff.h5, containing:
+        /functional_dff   (processed dF/F movie)
+        /structural       (copied from input, if present)
+
+USAGE:
+    Run the script directly. A file browser will open for multi-file selection.
+
+
+--------------------------------------------------------------------------------
+4. run_trial_averaging.m (WORKS AS INTENDED)
+--------------------------------------------------------------------------------
+PURPOSE:
+    Averages dF/F movies across multiple trials to improve signal-to-noise
+    ratio. Assumes all input files have the same spatial and temporal dimensions.
+
+HOW IT WORKS:
+    - Prompts user to select multiple motion-corrected HDF5 files.
+    - Processes each trial through the same dF/F -> binning -> filtering
+      pipeline as run_single_trials.m.
+    - Accumulates results into a running sum and divides by the number of
+      successfully processed trials at the end.
+    - Saves the final averaged movie to a fixed output path (editable in script).
+    - Optionally copies structural data from the first selected file.
+
+KEY PARAMETERS (editable in script):
+    p.Bin         = 1         % Temporal binning factor
+    p.Sigma       = 1         % Gaussian filter sigma
+    p.MedianWin   = 3         % Median filter window size
+    p.BaselineIdx = 38:100    % Frames used to compute F0
+
+INPUT:
+    - Multiple motion-corrected HDF5 files with identical dimensions.
+
+OUTPUT:
+    - A single averaged dF/F file saved to the path defined in the script
+      (default: data/preprocessing/led_1000_E0B0.h5), containing:
+        /functional_dff   (trial-averaged dF/F movie)
+        /structural       (copied from first input file, if present)
+
+USAGE:
+    Run the script directly. A file browser will open for multi-file selection.
+
+
+--------------------------------------------------------------------------------
+5. run_trial_averaging_autoresizing.m (WORKS AS INTENDED)
+--------------------------------------------------------------------------------
+PURPOSE:
+    Extended version of run_trial_averaging.m that handles trials with
+    mismatched spatial or temporal dimensions, such as those arising from
+    inconsistent cropping across sessions. Automatically resizes all inputs
+    to match the smallest file before averaging.
+
+HOW IT WORKS:
+    - Scans all selected files to find the minimum Height, Width, and
+      number of Frames across the set.
+    - Center-crops each file to match those target dimensions before
+      processing.
+    - Otherwise follows the same dF/F -> binning -> filtering -> averaging
+      pipeline as run_trial_averaging.m.
+    - Structural data is also resized to match if needed.
+
+KEY PARAMETERS (editable in script):
+    p.Bin         = 1         % Temporal binning factor
+    p.Sigma       = 1         % Gaussian filter sigma
+    p.MedianWin   = 3         % Median filter window size
+    p.BaselineIdx = 38:100    % Frames used to compute F0
+
+INPUT:
+    - Multiple motion-corrected HDF5 files (dimensions may vary).
+
+OUTPUT:
+    - A single averaged dF/F file saved to the path defined in the script
+      (default: data/preprocessing/led_averaged_E1_1000.h5), containing:
+        /functional_dff   (trial-averaged dF/F movie, resized & averaged)
+        /structural       (resized and copied from first input, if present)
+
+USAGE:
+    Run the script directly. A file browser will open for multi-file selection.
+    Use this script instead of run_trial_averaging.m when files differ in size.
+
+
+--------------------------------------------------------------------------------
+6. vsd_dff.m (NOT REQUIRED, THE ABOVE SCRIPTS DOES A BETTER JOB)
+--------------------------------------------------------------------------------
+PURPOSE:
+    Diagnostic and visualization script. Loads a processed dF/F file and
+    generates summary plots to assess data quality and activity patterns.
+    Run after run_single_trials.m or run_trial_averaging.m.
+
+HOW IT WORKS:
+    - Loads /functional_dff from a selected *_dff.h5 file.
+    - Generates a Space-Time Heatmap: collapses the width dimension by
+      averaging across columns, producing a [Rows x Time] matrix. This
+      visualizes how activity propagates spatially over time (waterfall plot).
+    - Generates an Activity Montage: subsamples up to 250 frames linearly
+      across the recording and displays them as a tiled grid. Color scaling
+      is based on the 1st-99th percentile range to avoid hot-pixel distortion.
+
+INPUT:
+    - Processed dF/F HDF5 file (*_dff.h5)
+
+OUTPUT:
+    - Figure 1: Space-Time Heatmap (spatiotemporal propagation plot)
+    - Figure 2: Activity Montage (subsampled frame grid)
+
+USAGE:
+    Run the script directly. A file browser will open.
+
+
+--------------------------------------------------------------------------------
+7. vsd_batch_dff.m (NOT REQUIRED, THE ABOVE SCRIPTS DOES A BETTER JOB)
+--------------------------------------------------------------------------------
+PURPOSE:
+    Multi-file comparison and visualization tool. Loads multiple processed
+    dF/F files and stitches them into a single aligned filmstrip image with
+    a calibrated time axis, allowing side-by-side visual comparison of
+    activity patterns across conditions, sessions, or animals.
+
+HOW IT WORKS:
+    - Prompts user to select multiple *_dff.h5 files.
+    - Scans all files to determine the maximum spatial and temporal dimensions.
+    - For each file:
+        - Subsamples a fixed number of frames (default: 150) linearly across
+          the recording.
+        - Resizes frames spatially to match the largest file if needed.
+        - Flattens the [H x W x Frames] stack into a 2D horizontal filmstrip.
+        - Optionally Z-score normalizes each file's strip independently.
+    - Stitches all strips vertically into a single master image.
+    - Plots the result with a calibrated time axis (in milliseconds) on X
+      and file labels on Y, using the defined sampling frequency (FPS).
+
+KEY PARAMETERS (editable in script):
+    FPS                  = 500    % Acquisition sampling frequency (Hz)
+    FRAMES_TO_SHOW       = 150    % Number of frames to extract per file
+    NORMALIZE_EACH_FILE  = true   % Z-score normalize each file independently
+    GAP_HEIGHT           = 0      % Pixel gap between rows in the filmstrip
+    NUM_TIME_TICKS       = 10     % Number of labeled ticks on the time axis
+
+INPUT:
+    - Multiple processed dF/F HDF5 files (*_dff.h5), multi-select supported.
+
+OUTPUT:
+    - A single figure: Multi-File Comparison filmstrip with time axis (ms)
+      and per-file labels on the Y axis.
+
+USAGE:
+    Run the script directly. A file browser will open for multi-file selection.
+    Adjust FPS to match your acquisition rate before running.
+
+
+
+================================================================================
+SUGGESTED WORKFLOW
+================================================================================
+
+The scripts should be run in the following order:
+
+   — Spatial Cropping
+      Script : vsd_interactive_crop.m
+      Input  : Raw .h5 file
+      Output : *_cropped.h5
+      Notes  : Remove edge artifacts. Use the averaged preview to judge
+               the best crop region.
+
+   — Contrast Normalization
+      Script : vsd_interactive_contrast.m
+      Input  : *_cropped.h5
+      Output : *_cropped_contrast.h5
+      Notes  : Scroll to a clearly structural or functional frame before
+               labeling. Tune each channel independently.
+
+  
+   — dF/F Computation  (choose ONE of the following)
+
+      Option A — Per-Trial Processing
+          Script : run_single_trials.m
+          Input  : *_corrected.h5 (one or more files)
+          Output : *_corrected_dff.h5 per file
+          Notes  : Use when you want to keep individual trial data intact
+                   for single-trial analysis or quality checking.
+
+      Option B — Trial Averaging (same dimensions)
+          Script : run_trial_averaging.m
+          Input  : Multiple *_corrected.h5 files (same dimensions)
+          Output : Single averaged *_dff.h5 file
+          Notes  : Use when trials are from the same session and identically
+                   cropped. Edit the output path in the script before running.
+
+      Option C — Trial Averaging (different dimensions)
+          Script : run_trial_averaging_autoresizing.m
+          Input  : Multiple *_corrected.h5 files (dimensions may vary)
+          Output : Single averaged *_dff.h5 file
+          Notes  : Use when cropping was inconsistent across sessions.
+                   All files will be center-cropped to the smallest size.
+                   Edit the output path in the script before running.
+
+  — Quality Control & Visualization  (choose ONE or BOTH)
+
+      Option A — Single File Inspection
+          Script : vsd_dff.m
+          Input  : Any *_dff.h5 file
+          Output : Space-time heatmap and activity montage figures
+          Notes  : Use to inspect individual files for signal quality,
+                   propagation patterns, or artifacts after dF/F computation.
+
+      Option B — Multi-File Comparison
+          Script : vsd_batch_dff.m
+          Input  : Multiple *_dff.h5 files
+          Output : Single filmstrip comparison figure with time axis (ms)
+          Notes  : Use to compare activity patterns across conditions,
+                   sessions, or animals side by side. Set FPS to match
+                   your acquisition rate before running.
+
+================================================================================
+NOTES & TIPS
+================================================================================
+
+- All scripts use MATLAB's file browser (uigetfile) when no input argument
+  is provided, making them safe to run directly without editing paths.
+
+- HDF5 dataset naming: scripts attempt to auto-detect dataset names but
+  expect /functional and /structural as the primary channel names in
+  motion-corrected files.
+
+- Baseline window (p.BaselineIdx) should be set to pre-stimulus frames only.
+  Verify this matches your experimental timing before running dF/F scripts.
+
+- Output file paths in run_trial_averaging.m and run_trial_averaging_autoresizing.m
+  are hardcoded and must be edited manually before running.
+
+- In vsd_batch_dff.m, set FPS to match your camera's actual acquisition
+  rate. An incorrect FPS will result in a miscalibrated time axis.
+
+- If data dimensions appear transposed, the reorientation heuristics in
+  vsd_interactive_crop.m and vsd_interactive_contrast.m may need adjustment
+  based on your acquisition system's output format.
+
+- vsd_batch_runner.m requires vsd_motion_correct.m to be available on the
+  MATLAB path. Ensure this dependency is present before running Step 3.
+
+================================================================================
+END OF README
+================================================================================

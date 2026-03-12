@@ -1,0 +1,60 @@
+PART OF VSD PROCESSING PIPELINE
+Fluorescence Analysis Toolkit Documentation
+BETTER SCRIPT IS TO USE run_single_trials.m or run_trial_averaging.m 
+FOR BETTER FRACTIONAL CHANGE IN FLUORESCENCE
+==================================
+
+1. vsd_visualize.m (OBSOLETE)
+------------------
+Description: A static visualization tool used to generate a snapshot of the functional response. 
+Core Functions: 
+- Computes per-pixel baseline and mean ΔF/F for pre-stimulus and stimulus periods.
+- Calculates the absolute difference between pre and stim periods to isolate the stimulus effect.
+- Applies optional spatial Gaussian blur and renders a side-by-side figure using a custom diverging blue-white-red colormap.
+
+2. vsd_view_fluorescence.m (SHOWS ONLY RAW FLUROESCENCE)
+--------------------------
+Description: A video player and exporter for fluorescence imaging time-series.
+Core Functions:
+- Allows playback of raw fluorescence (F), calculated ΔF/F, or both side-by-side.
+- Includes signal processing options like temporal binning, median filtering, and Gaussian spatial smoothing.
+- Uses percentile-based clipping for contrast control and can save outputs to MP4.
+
+3. vsd_fluorescence.m (ALSO SHOWS ONLY RAW FLUORESCENCE)
+---------------------
+Description: An upgraded, more robust version of the fluorescence viewer and exporter.
+Core Functions:
+- Features strict validation checks for HDF5 files and datasets.
+- Provides advanced rendering control, including a 'none' option for direct grayscale rendering without false-color maps.
+- Computes intensity limits across the entire video block simultaneously for consistent color scaling, and exports high-quality (Quality=95) MP4 videos.
+
+4. vsd_overlay.m (SHOWS RAW FLUORESCENCE ON ANATOMY)
+----------------
+Description: A specialized viewer/exporter for overlaying functional activity on top of anatomical structures.
+Core Functions:
+- Reads both functional (ΔF/F) and structural/anatomical datasets from the same HDF5 file.
+- Applies alpha blending and transparency thresholds so that only significant ΔF/F activity paints over the grayscale anatomy.
+- Supports smooth display interpolation and saves to high-quality Motion JPEG AVI format.
+
+5. vsd_sanity_check.m (TO CHECK IF THERE IS A STIMULUS JUMP HALF WAY OR NOT, THAT'S IT)
+---------------------
+Description: A lightweight diagnostic script to verify data integrity prior to heavy processing.
+Core Functions:
+- Explicitly checks for a 750-frame recording, splitting it into pre-stimulus (1:375) and stimulus (376:750) windows.
+- Calculates global mean fluorescence for the entire recording, pre-stimulus, and stimulus windows.
+- Prints global values to the console and generates a simple bar chart comparing global pre- and post-stimulus ΔF/F.
+
+6. vsd_dff_movie.m (ASSINGS COLOURS AND OUTPUTS AS VIDEO, POINTLESS SCRIPT)
+------------------
+Description: A non-interactive, streamlined script dedicated purely to rendering ΔF/F movies.
+Core Functions:
+- Focuses on calculating ΔF/F, applying optional pixel masking (e.g., for blood vessels), spatial smoothing, and temporal binning.
+- Bypasses complex GUI rendering to write processed frames directly to an MP4 file with a fixed color range.
+
+7. vsd_dff_viewer.m (VISUALIZATION TOOL ONLY, ALSO NOT THAT USEFUL)
+-------------------
+Description: A memory-efficient analytical tool for extracting spatial maps and 1D time-series traces.
+Core Functions:
+- Streams HDF5 data in time-chunks to compute statistics without loading massive 3D matrices into RAM.
+- Calculates mean ΔF/F maps and Z-score maps to proxy the signal-to-noise ratio of the stimulus response.
+- Extracts 1D ΔF/F time traces for the global field of view or a specific Region of Interest (ROI), and saves data to .mat files for downstream statistical analysis.

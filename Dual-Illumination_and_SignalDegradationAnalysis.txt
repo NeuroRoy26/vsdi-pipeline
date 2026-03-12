@@ -1,0 +1,109 @@
+================================================================================
+PART OF VSD PROCESSING PIPELINE
+DUAL-ILLUMINATION & MOTION CORRECTION
+BETTER SCRIPT IS vsd_motion_correct.m function script
+================================================================================
+
+This contains a suite of MATLAB scripts designed for processing, 
+stabilizing, and analyzing dual-illumination Voltage-Sensitive Dye (VSD) imaging 
+data. The pipeline handles raw HDF5 parsing, two-stage motion correction (macro 
+optical flow and micro parallax reduction), signal degradation analysis (bleaching), 
+and comprehensive video generation for visual validation.
+
+Script Descriptions
+-------------------
+
+1. Data Exploration & Configuration
+   * hdf5_reader.m
+     A diagnostic script that examines the raw HDF5 file structure and dimensions. 
+     It verifies the interleaved pattern of the data by calculating the contrast 
+     ratio between structural and functional frames. It then 
+     prints a recommended configuration block (frame rates, reference frames, 
+     smoothing parameters) to be used in the main processing scripts.
+     
+   * hdf5_parser.m
+     An advanced programmatic parser that extracts dataset information. 
+     It automatically identifies high-contrast (structural) and low-contrast 
+     (functional) streams, calculates optimal tuning parameters (alpha and sigma), 
+     determines safe memory buffer sizes, and plots a mean intensity trace across 
+     all frames.
+
+2. Motion Correction Pipeline
+   * motion_compensation.m (BETTER VERSION EXISTS, NO NEED TO USE THIS)
+     The primary motion correction script. It splits 
+     the raw interleaved HDF5 data into structural and functional channels, 
+     feeds them into an external Flow-Registration toolbox to calculate optical 
+     flow, applies the correction, and saves the stabilized output into a new 
+     HDF5 file.
+     
+   * parallax_reduction.m (PARALLAX WAS NOT OBSERVED, PROBABLY SCRIPT DOESNT WORK)
+     A second-pass correction script. It uses a Laplacian 
+     pyramid-based approach (adapted from Flotho et al., 2017) to reduce residual 
+     slow Gaussian dual-illumination artifacts (parallax). 
+     It calculates optical flow from coarse to fine resolutions, applying it to 
+     both channels to eliminate lingering motion errors.
+
+3. Analytics & Diagnostics
+   * observe_bleaching.m (NO BLEACHING WAS OBSERVED, PROBABLY SCRIPT DOES NOT WORK)
+     A diagnostic tool used to inspect the corrected data for photobleaching. 
+     It calculates global mean intensity over time and fits linear, single-exponential, 
+     and double-exponential decay models to the data. It 
+     generates a diagnostic plot showing baseline drift, fit residuals, and a 
+     spatial map of Spearman correlations to highlight where bleaching occurs.
+
+4. Visualization & Video Generation
+   * visualize_raw_avi.m
+     Generates a Motion JPEG AVI video directly from the raw HDF5 data. 
+     Features include specific channel selection, intensity clipping using 
+     percentiles, and temporal downsampling.
+     
+   * to_visualize_motion_compensation.m ()
+     Evaluates the first-pass motion correction by generating a suite of 
+     comparison videos. Outputs include 
+     side-by-side (original vs. corrected) videos, absolute difference videos, 
+     and an overlay video showing the calculated motion vectors.
+     
+   * parallax_visual.m (NO PARRALLAX CORRECTION WAS REQUIRED)
+     Creates comparison videos specifically evaluating the pyramid-based residual 
+     motion (parallax) correction. Outputs videos showing 
+     original vs. pyramid-corrected frames.
+     
+   * vsd_h5_to_videos.m
+     A robust video exporter for the final motion-compensated HDF5 file. 
+     Converts structural and functional datasets into separate, high-speed video 
+     files (e.g., MP4/AVI) using robust percentile-based scaling to handle 
+     extreme pixel values.
+
+
+Typical Workflow
+----------------
+To process a new dataset from start to finish, run the scripts in the following 
+order:
+
+  1. hdf5_reader.m OR hdf5_parser.m
+     -> Assess your raw data, confirm the interleave pattern, and get parameters.
+     
+  2. visualize_raw_avi.m
+     -> (Optional) Generate a quick video of the raw data to visually identify 
+        artifacts before processing.
+        
+  3. motion_compensation.m
+     -> Run the primary optical flow stabilization.
+     
+  4. to_visualize_motion_compensation.m
+     -> Generate comparison videos to verify the first-pass correction succeeded.
+     
+  5. parallax_reduction.m
+     -> Run the secondary Laplacian pyramid correction to remove residual parallax.
+     
+  6. parallax_visual.m
+     -> Generate comparison videos to verify the secondary correction succeeded.
+     
+  7. observe_bleaching.m
+     -> Analyze the fully stabilized data for photobleaching and signal degradation.
+     
+  8. vsd_h5_to_videos.m
+     -> Export the final, corrected structural and functional datasets to standard 
+        video formats for presentations or sharing.
+
+================================================================================

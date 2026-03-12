@@ -1,0 +1,514 @@
+================================================================================
+ PART OF VSD IMAGING PROCESSING PIPELINE
+ THE LAST AND THE MOST IMPORTANT SCRIPTS ARE DOCUMENTED HERE
+ READ VERY CAREFULLY BEFORE CHANGING ANYTHING
+
+ VSD + MEA CORTICAL IMAGING PIPELINE — README & DOCUMENTATION
+  Author: Sindhujit Roy
+  Last Updated: 12-03-2026
+  MATLAB Version Required: R2019b or later
+  Required Toolboxes: Image Processing, Signal Processing, Statistics & ML
+================================================================================
+
+This pipeline processes Voltage-Sensitive Dye (VSD) widefield cortical imaging
+data in combination with Micro-Electrode Array (MEA) electrophysiology. The
+workflow begins with raw HDF5 imaging movies, decomposes them using
+Non-Negative Matrix Factorization (NMF) to isolate neural components from
+noise, maps cortical wave propagation via isochrone analysis, generates
+publication-quality filmstrip montages, and finally integrates optical and
+electrical signals into a unified visualization and analysis framework.
+
+The pipeline is designed for in-vivo rodent somatosensory cortex imaging
+with a FlexMEA72 electrode array. VSD signals are interpreted as
+depolarization events (positive peaks = neural activation), consistent with
+Morales-Botello et al. (1999) and Grinvald & Hildesheim (2004, Nature).
+
+--------------------------------------------------------------------------------
+
+SCRIPT 1: nmf_decomp.m (SUPER SCRIPT, WORKS PERFECTLY)
+========================
+PURPOSE:
+  Decomposes a raw VSD imaging movie into spatially and temporally distinct
+  components using Non-Negative Matrix Factorization (NMF). Replaces the
+  PCA-ICA approach used in earlier pipelines. NMF avoids the blind polarity
+  assignment problem of ICA by constraining all values to be non-negative,
+  producing more interpretable spatial maps.
+
+RATIONALE FOR NMF OVER ICA:
+  ICA performs blind polarity assignment which can invert spatial maps,
+  making the depolarization peaks appear as negative deflections. NMF shifts
+  all data to positive values and applies a 50% threshold to isolate positive
+  peaks, which correspond physically to neuronal depolarization. This is
+  consistent with published VSD imaging conventions.
+
+INPUTS:
+  - An HDF5 (.h5) file containing the dataset '/functional_dff'
+    (deltaF/F fluorescence movie), shape: [Height x Width x Frames]
+  - User selection of sampling rate: 500 Hz, 1000 Hz, or custom
+
+KEY PROCESSING STEPS:
+  1. Spatial binning (factor of 2) — reduces matrix size by 4x for speed
+  2. Gaussian spatial smoothing (sigma=2) applied per frame
+  3. Data shifted to strictly non-negative range (required by NMF)
+  4. NMF run with 8 components, ALS algorithm, 3 replicates, parallelized
+  5. Visual dashboard displayed: spatial map + timecourse for each component
+  6. User selects meaningful components (waves vs. noise/artifacts)
+  7. Reconstruction at original resolution via imresize
+
+OUTPUTS:
+  - reconstructed_NMF_COMBINED_<filename>.mat
+      Variables: reconstructed_movie, Fs, selected_ICs
+  - reconstructed_NMF_Comp<N>_<filename>.mat  (one per selected component)
+      Variables: reconstructed_movie, Fs, selected_component
+
+CONFIGURATION:
+  num_components = 8      % Number of NMF components to extract
+  bin_factor     = 2      % Spatial downsampling factor for speed
+
+NOTES:
+  - NMF requires all-positive data. Negative values are automatically shifted.
+  - Output .mat files feed directly into corticalpropagation.m and
+    VSD_Filmstrip_Montage_Batch.m
+  - Replicates=3 means NMF is run 3 times; best factorization is kept.
+
+--------------------------------------------------------------------------------
+
+SCRIPT 2: corticalpropagation.m (VERY BUGGY, CAN BE USEFUL IF DEBUGGED)
+================================
+PURPOSE:
+  Batch processes NMF-reconstructed movies (or raw H5 files) to generate
+  isochrone latency maps showing cortical wave propagation timing, a vector
+  field of propagation direction, and virtual MEA electrode traces extracted
+  directly from the optical data at positions matching a real FlexMEA72 grid.
+
+INPUTS:
+  - One or more .mat files from nmf_decomp.m, or raw .h5 files
+  - Files are auto-sorted by experiment (E) and burst (B) numbering
+
+KEY PROCESSING STEPS:
+  1. Data loading (auto-detects .mat or .h5 format)
+  2. Frame trimming (10 frames start, 5 frames end)
+  3. Optional spatial inversion (CONFIG.files_to_invert list)
+  4. Global trace extraction: spatial mean across all pixels
+  5. Bandpass filtering [0.1–75 Hz], z-score normalization
+  6. Virtual MEA extraction:
+       - 8x9 electrode grid placed at image center
+       - Electrode spacing: 625 µm (x), 750 µm (y)
+       - Electrode diameter: 100 µm
+       - Corner electrodes masked out to match FlexMEA72 geometry
+  7. Isochrone mapping:
+       - Searches ±100ms window around global signal peak
+       - Half-maximum threshold per pixel
+       - Onset latency assigned; inactive pixels (below 85th percentile) = NaN
+       - Latency expressed relative to first-activated pixel
+  8. Visualization: latency heatmap + contour lines + gradient arrows + MEA
+
+OUTPUTS:
+  - All_Experiments_Isochrones.mat
+      Variables: All_Experiments struct array with fields:
+        .filename, .nmf_component, .inverted, .trace, .fs,
+        .Virtual_MEA (traces, coords_X, coords_Y), .LatencyMap
+
+CONFIGURATION (CONFIG struct):
+  CONFIG.bandpass_freq        = [0.1, 75]   % Hz
+  CONFIG.filter_order         = 4
+  CONFIG.default_fs           = 500         % Hz
+  CONFIG.microns_per_pixel    = 9.4
+  CONFIG.grid_pitch_x_um      = 625
+  CONFIG.grid_pitch_y_um      = 750
+  CONFIG.elec_diam_um         = 100
+  CONFIG.grid_dim             = [8, 9]
+  CONFIG.files_to_invert      = {}          % Cell array of filenames
+
+NOTES:
+  - Files named with 'selected_component' field are automatically labeled
+    as individual NMF components in figures and output.
+  - The isochrone map represents time-to-half-maximum, not absolute onset.
+  - Gradient arrows (quiver) show direction of wave travel.
+
+--------------------------------------------------------------------------------
+
+SCRIPT 3: VSD_Filmstrip_Montage_Batch.m (PRECURSOR TO VSD_MEA.m, ONLY USE IF VSD_MEA.m FAILS FOR SOME REASON)
+========================================
+PURPOSE:
+  Generates publication-quality filmstrip montages from NMF component .mat
+  files. Frames are temporally aligned to a "smart trigger" — an
+  algorithmically detected neural event onset — and composited as heatmap
+  overlays and contour lines on a real background microscopy image.
+  Supports multiple components with different colormaps for visual separation.
+
+INPUTS:
+  - Two or more NMF .mat files (reconstructed_movie, Fs variables required)
+  - A background PNG image (frame_1.png or equivalent)
+
+SMART TRIGGER DETECTION ALGORITHM:
+  The trigger is NOT a fixed frame. It is computed as follows:
+  1. Find the absolute peak of the summed global signal across all components
+  2. Look back 200ms to find the frame of maximum derivative (steepest slope)
+  3. Walk backward from that slope to find the preceding local trough
+  4. Walk further backward to find the local peak immediately before the trough
+  5. Shift back by 3 additional frames → this is "time zero"
+  This ensures the filmstrip starts just before neural activation begins.
+
+KEY PROCESSING STEPS:
+  1. Pre-load all .mat files and cache them for speed
+  2. Compute smart trigger (see above)
+  3. Plot standalone trigger detection figure for verification
+  4. Per component:
+       a. Extract frames in [trigger - pre_ms, trigger + post_ms] window
+       b. 3D Gaussian smoothing (spatial only, not temporal)
+       c. Global normalization [0, 1]
+       d. Morphological closing (fills gaps, smooths activation blobs)
+       e. Alpha-composite heatmap onto background
+       f. Extract and draw contour lines at 5 levels between alpha and 0.95
+       g. Burn timestamp and TRIGGER label into each frame
+  5. Combined canvas: both components blended with per-component transparency
+  6. Mathematical merge: Component 1 + Component 2, re-normalized, re-plotted
+  7. Time trace subplot at bottom of combined figure
+
+OUTPUTS:
+  - Multiple MATLAB figures (displayed, not saved automatically)
+  - Figures: per-component alpha overlay, per-component contours,
+    combined overlay, mathematically merged overlay, trigger detection plot
+
+CONFIGURATION (top of script):
+  window_pre_ms            = 20       % ms before trigger
+  window_post_ms           = 100      % ms after trigger
+  frame_step               = 1        % take every N-th frame
+  alpha_thresholds         = [0.45, 0.35]    % per component
+  heatmap_transparencies   = [0.85, 0.95]    % per component
+  component_cmaps          = {@spring, @hot} % per component colormap
+  spatial_smoothing        = 4.5      % Gaussian sigma (pixels)
+  closing_radius           = 12       % morphological disk radius (pixels)
+  line_thickness           = 1        % contour line width
+  bg_path                  % full path to background PNG
+
+NOTES:
+  - The @spring and @hot colormaps are intentionally different to visually
+    separate the two ROIs in the combined figure.
+  - The trigger figure (yyaxis: signal + derivative) should be inspected
+    before trusting the alignment.
+  - shift_frames = 3 can be adjusted if trigger is mis-timed.
+
+--------------------------------------------------------------------------------
+
+SCRIPT 4: MEA_coords.m (NOT USEFUL IN THIS DATASET, STRECTHES THE ATLAS AS PER THE MEA LAYOUT)
+========================
+PURPOSE:
+  A short interactive utility that warps a brain atlas image to match the
+  coordinate space of the physical MEA electrode grid as seen in an
+  experimental image. The user clicks 4 corner points on the image
+  corresponding to the corners of the MEA array, and the script applies a
+  projective (homographic) transform to align the atlas accordingly.
+
+INPUTS:
+  - Any image file (experimental photo, fluorescence frame, etc.)
+  - User interactively draws a 4-point polygon using drawpolygon()
+
+KEY PROCESSING STEPS:
+  1. Load and display the selected image
+  2. User draws a quadrilateral matching the 4 corners of the MEA
+  3. Script validates exactly 4 corners (repeats prompt if not)
+  4. fitgeotrans() computes projective transform: MEA corners → image corners
+  5. imwarp() applies the transform
+  6. Output displayed with real-world axis labels (µm scale)
+
+OUTPUTS:
+  - img_out: the warped atlas image (displayed, not saved)
+  - imagesc display with µm axis labels (x and y ranges hardcoded)
+
+CONFIGURATION (hardcoded, modify as needed):
+  x = [0, 1]       % x-axis extent in µm (update to match your atlas)
+  y = [0, 1.25]    % y-axis extent in µm (update to match your atlas)
+
+NOTES:
+  - The polygon must have exactly 4 corners or the script loops.
+  - This script was part of an earlier SEP_Project pipeline.
+  - The µm values for x and y must be manually updated to match your atlas.
+  - Output image is grayscale (sum of R and G channels, normalized).
+
+--------------------------------------------------------------------------------
+
+SCRIPT 5: RevEng_0503.m (REVERSE ENGINEERED SEP_PROJECT.m COMPLETE PIPELINE FOR CO-REGISTERING WITH VSD)
+========================
+PURPOSE:
+  A standalone reverse-engineered processing pipeline for MEA electrophysiology
+  data from Subject 0503. It bypasses the original compiled GUI (SEP_Project)
+  to provide direct access to filtering, trigger recovery, epoching, and
+  visualization, and extends the original with bipolar montage, current source
+  density (CSD) mapping, and an interactive animated GUI.
+
+  ** THIS SCRIPT CONTAINS SUBJECT-SPECIFIC HARDCODED FIXES.
+     DO NOT USE FOR OTHER SUBJECTS WITHOUT MODIFICATION. **
+
+INPUTS:
+  - data/ID0503/0503_MEA72_03_ref_ground_512Hz.mat
+      Variable Y: [70 x Time] matrix
+        - Row 70:   Trigger channel
+        - Rows 2–65: 64 MEA electrode channels (ground referenced)
+
+TRIGGER RECOVERY (CRITICAL — SUBJECT-SPECIFIC):
+  The trigger channel does not contain clean digital pulses. Instead, it
+  contains a sawtooth-like analog signal. Recovery works as follows:
+  1. Compute derivative of trigger channel and round to integers
+  2. Identify "odd" integer steps (odd parity = hardware trigger event)
+  3. Classify as +1 (onset) or -1 (offset)
+  4. HARDCODED PATCHES for Subject 0503:
+       Trial 1: Force trigger onset at index 30157
+       Trial 2: Force onset at 32945, offset at 39389
+  5. Reconstruct binary trigger pulse from onset/offset pairs
+
+FILTERING CHAIN:
+  1. Cut first 0.5s (artifact removal)
+  2. Notch filter at 50Hz harmonics with sidebands ±12Hz, ±24Hz, Q=35
+  3. Bandpass: 4–150 Hz, 3rd-order Butterworth, zero-phase (filtfilt)
+
+EPOCHING:
+  - Pre-trigger: 125 ms
+  - Post-trigger: 125 ms
+  - Baseline correction: mean of [10–50 ms] pre-trigger subtracted
+  - ROI window: -20 to 160 ms (displayed)
+  - Trigger delay applied: 10 ms (accounts for hardware latency)
+
+PARTS & FIGURES GENERATED:
+  Part 1 — Basic ERPs:
+    Figure 1: Butterfly plot (all channels superimposed + grand average)
+    Figure 2: 8x8 grid layout of averaged ERPs
+  Part 2 — Dashboard Recreation:
+    Figure 1: Averaged ERPs (64 subplots, labeled A1–H8)
+    Figure 2: Single sweeps per channel (grey) + average (red)
+    Figure 3: Color-coded sweeps (imagesc per channel, parula colormap)
+    Figure 4: Power spectra 0–200 Hz (Welch method)
+  Part 3 — Spatially Correct Dashboard:
+    Reconstructed 9x8 grid using row_map/col_map to place each electrode
+    correctly. LEFT-RIGHT FLIP applied (col_map_flipped).
+  Part 4 — Advanced Spatial Analysis:
+    Bipolar montage: row-wise adjacent channel differences
+    CSD: negative Laplacian with rectangular geometry weighting
+          (dx=625µm, dy=750µm). NaN gaps interpolated with griddata before
+          convolution, then re-masked. Edge rows/columns set to NaN.
+    Figure: Voltage map vs. CSD map at GFP peak time
+  Part 5 — CSD Animation:
+    Exports Subject_0503_CSD_Propagation.mp4 at 30 fps
+  Part 6 — Virtual Trace Analysis:
+    Electrode D1 voltage (blue) vs. CSD (red) on dual y-axis
+  Part 7 — Interactive CSD GUI:
+    Dark-themed figure with:
+      - Left panel: animated CSD heatmap (jet colormap, locked caxis)
+      - Right panel: waveform viewer (click electrode to update)
+      - Controls: Play/Pause, Replay, Slider scrub, keyboard arrows
+      - Uses MATLAB timer object for smooth playback
+      - All state stored in appdata (Live Editor compatible)
+
+OUTPUTS:
+  - Subject_0503_CSD_Propagation.mp4
+  - Workspace variables: data, erp_stack, erpAvg, tFinal, onsetIdx
+    (see table in RevEng_0503_ReadMe.txt for full variable documentation)
+
+ELECTRODE LAYOUT (FlexMEA72):
+  row_map / col_map: 64-element arrays mapping linear index → grid position
+  Rows A–H, J (I is skipped). Corners of rows A, B missing (4 electrodes).
+  col_map_flipped: mirrors columns left-right for correct anatomical display.
+
+ASSOCIATED DOCUMENTATION:
+  See RevEng_0503_ReadMe.txt for:
+  - Full variable reference table
+  - Integration guide for bipolar pipeline
+  - Example code for bipolar derivation
+
+--------------------------------------------------------------------------------
+
+SCRIPT 6: VSD_MEA.m  [MASTER COMBINED PIPELINE] (MAGNUM OPUS OF THIS ENTIRE PIPELINE, HAS EVERYTHING YOU NEED AND MORE)
+=================================================
+PURPOSE:
+  Integrates the entire VSD optical imaging and MEA electrophysiology pipeline
+  into a single script. Loads NMF components, detects the neural event trigger,
+  allows freehand ROI drawing per component, co-registers the MEA grid onto
+  the optical image, and produces 11 numbered figures plus 3 MP4 videos
+  combining spatial, temporal, and electrophysiological data.
+
+INPUTS:
+  - Two NMF .mat files (hardcoded paths in SECTION C)
+  - Background PNG: frame_1.png
+  - MEA data: data/ID0503/0503_MEA72_03_ref_ground_512Hz.mat
+  - Optional cached files: ROI_<k>_mask_frame<N>.mat, mea_grid_pos.mat
+
+SECTION-BY-SECTION DESCRIPTION:
+
+  SECTION A — Configuration
+    All tunable parameters in one place: window sizes, alpha thresholds,
+    colormap functions, smoothing, ROI feathering, MEA file paths, filter
+    settings, epoch windows, and baseline correction windows.
+
+  SECTION B — Background Loading
+    Loads and caches the background PNG. Cached across runs if path unchanged.
+
+  SECTION C — NMF File Loading
+    Hardcoded list of NMF component .mat files. Extracts experiment label
+    from filename for use in output file naming.
+
+  SECTION D — Pre-load & Common Timeline
+    Loads all NMF files, extracts per-component global traces, computes
+    summed trace for trigger detection.
+
+  SECTION E — Smart Trigger Detection
+    Identical algorithm to VSD_Filmstrip_Montage_Batch.m (see Script 3).
+
+  SECTION F — Plot Frame Setup & Canvas Initialization
+    Defines filmstrip frame range [trigger, trigger + post_ms].
+    Initializes combined canvas tiled with background image.
+
+  SECTION F2 — Pre-compute Normalized Stacks
+    For each component: smooth → normalize → morphological close.
+    Results cached in norm_stacks cell array.
+
+  SECTION F3 — Freehand ROI Drawing (interactive or cached)
+    If ROI_<k>_mask_frame<N>.mat files exist on disk, they are loaded.
+    Otherwise, user draws freehand polygon per component. The raw binary
+    mask is feathered (smooth edge falloff) using signed distance transform
+    over roi_feather_px pixels. Saved to disk for reuse.
+
+FIGURES GENERATED:
+  Fig 1  — Global trigger detection (signal + derivative, dual y-axis)
+  Fig 2  — ROI_1 freehand overlay filmstrip
+  Fig 3  — ROI_2 freehand overlay filmstrip
+  Fig 4  — Dual ROI overlay filmstrip (both components on same canvas)
+  Fig 4B — ROI_1 corrected filmstrip (ROI_1 minus ROI_2 as virtual ground)
+  Fig 5  — Interactive Spatial Viewer (click trace → update spatial panels)
+  Fig 5B — Optical dipole differential time course (ROI_1 - ROI_2)
+  Fig 6  — MEA reconstructed dashboard (9x8 ERP grid, ±500µV)
+  Fig 7  — Interactive MEA CSD GUI (identical to RevEng_0503 GUI)
+  Fig 8  — VSD+CSD overlay video (merged optical + CSD dots) [MP4]
+  Fig 9  — Dual ROI overlay video with CSD dots [MP4]
+  Fig 10 — Direct comparison: smoothed optical dipole vs. MEA electrode trace
+  Fig 11 — Dual ROI + CSD video with baseline-corrected optical dipole
+             inset trace panel [MP4]
+
+VIDEO OUTPUTS:
+  Fig8_VSD_CSD_<label>.mp4          — 15 fps, merged VSD + CSD dots
+  Fig9_DualROI_<label>.mp4          — 15 fps, dual ROI + CSD dots
+  Fig11_DualROI_BaselineCorrected_<label>.mp4  — 15 fps, + dipole inset
+
+SAVED DATA OUTPUTS:
+  ROI_<k>_mask_frame<N>.mat         — binary + feathered ROI masks
+  ROI_<k>_binary_frame<N>.png       — binary mask PNG
+  ROI_<k>_feathered_frame<N>.png    — feathered mask PNG
+  mea_grid_pos.mat                  — MEA grid position [x1,y1,x2,y2]
+  Fig11_OpticalDipole_BaselineCorrected_<label>.mat
+    Variables: dipole_time_ms, dipole_raw, dipole_smooth,
+               dipole_smooth_zeroed, dipole_offset
+
+KEY CONFIGURATION FLAGS:
+  recalc_colorbar_from_zero = true/false
+    true:  colormap spans [0, 1] (full dynamic range)
+    false: colormap spans [alpha_threshold, 1] (emphasizes active regions)
+  flip_mea_columns = true/false
+    Mirrors MEA electrode column numbering left-right.
+
+MEA GRID PLACEMENT (Interactive):
+  If mea_grid_pos.mat does not exist, an interactive figure appears showing
+  the VSD frame. Click anywhere to reposition the MEA electrode grid overlay.
+  Press Enter to confirm. Position is saved and reused on subsequent runs.
+
+OPTICAL DIPOLE (Fig 5B, Fig 10, Fig 11):
+  The differential trace (ROI_1 - ROI_2) mimics a differential electrode
+  recording. Shared background fluorescence decay cancels between the two
+  ROIs, leaving only the spatially specific neural signal. In Fig 11, the
+  DC offset is removed using a pre-trigger baseline window configured by:
+    optical_baseline_pre_ms  = -20   % ms relative to trigger
+    optical_baseline_post_ms =  0    % ms relative to trigger
+
+CSD COMPUTATION:
+  Identical to RevEng_0503.m: rectangular Laplacian kernel with
+  FlexMEA72-specific spacing (dx=0.625mm, dy=0.750mm). NaN gaps (missing
+  electrodes) filled via cubic griddata before convolution, then re-masked.
+  Padded with replicate boundary to reduce edge artifacts.
+
+INTERACTIVE VIEWER (Fig 5):
+  Click anywhere on the time trace to update all three spatial panels
+  (ROI_1, ROI_2, merged) simultaneously. Vertical lines and dots on the
+  trace move to the clicked time point. Trigger frame is marked in green.
+
+HELPER FUNCTIONS (local, end of file):
+  make_color_rgb()              — maps normalized image to colormap RGB
+  colorbar_range()              — returns lo/hi based on recalc flag
+  ternary_str()                 — inline conditional string selection
+  burn_text()                   — stamps timestamp onto frame image
+  add_colorbar_full()           — draws a manual colorbar axes
+  vsd_compose_frame()           — composites heatmap on background
+  vsd_compose_frame_masked()    — same but applies freehand ROI mask
+  grid_from_centre()            — computes electrode pixel positions
+  mea_grid_click/keypress()     — callbacks for MEA grid placement GUI
+  vsdTraceClick()               — callback for Fig 5 interactive viewer
+  updateFrame/onPlay/etc.       — MEA CSD GUI playback callbacks
+  guiCloseReq()                 — cleans up timer on figure close
+
+--------------------------------------------------------------------------------
+
+DATA FLOW SUMMARY
+-----------------
+
+  Raw H5 Movie
+      |
+      v
+  [nmf_decomp.m]
+      |-- reconstructed_NMF_Comp<N>_*.mat  (per component)
+      |-- reconstructed_NMF_COMBINED_*.mat (optional)
+      |
+      +--------> [corticalpropagation.m]
+      |               |-- All_Experiments_Isochrones.mat
+      |               |-- Isochrone figures per file
+      |
+      +--------> [VSD_Filmstrip_Montage_Batch.m]
+      |               |-- Filmstrip figures (displayed)
+      |               |-- Smart trigger verification figure
+      |
+      +--------> [VSD_MEA.m]  <---- MEA .mat + background PNG
+                      |-- Figs 1–11 (displayed)
+                      |-- 3 MP4 videos
+                      |-- ROI masks, grid position, dipole trace
+
+  MEA .mat file
+      |
+      v
+  [RevEng_0503.m]  (standalone, subject-specific)
+      |-- 10+ figures (butterfly, grid, CSD, dashboard, GUI)
+      |-- CSD animation MP4
+      |-- Workspace variables for downstream use
+
+  Experimental image + atlas
+      |
+      v
+  [MEA_coords.m]  (standalone utility)
+      |-- Warped atlas image (displayed)
+
+--------------------------------------------------------------------------------
+
+DEPENDENCIES & REQUIREMENTS
+-----------------------------
+  MATLAB R2019b+
+  Image Processing Toolbox    — imgaussfilt, imresize, insertText, imclose,
+                                bwperim, imdilate, imwarp, drawfreehand
+  Signal Processing Toolbox   — butter, filtfilt, iirnotch, pwelch
+  Statistics & ML Toolbox     — nnmf, statset
+  Computer Vision Toolbox     — insertText (optional; fallback provided)
+  Parallel Computing Toolbox  — optional, speeds up NMF replicates
+
+FILE NAMING CONVENTIONS
+------------------------
+  Input NMF files:   reconstructed_NMF_Comp<N>_<experiment_label>.mat
+  ROI mask files:    ROI_<component_index>_mask_frame<frame_number>.mat
+  MEA grid file:     mea_grid_pos.mat
+  Video output:      Fig<N>_<type>_<experiment_label>.mp4
+  Dipole output:     Fig11_OpticalDipole_BaselineCorrected_<label>.mat
+
+REFERENCES
+----------
+  Morales-Botello et al. (1999) — VSD imaging of spatio-temporal dynamics
+    in rat somatosensory cortex. (Justification for sign convention.)
+  Grinvald & Hildesheim (2004) — VSDI: a new era in functional imaging of
+    cortical dynamics. Nature Reviews Neuroscience.
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

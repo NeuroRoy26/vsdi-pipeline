@@ -1,0 +1,790 @@
+================================================================================
+PART OF VSD IMAGING PROCCESING PIPELINE
+OPTICAL MAPPING ANALYSIS PIPELINE
+================================================================================
+
+IMPORTANT SCRIPTS ARE THERE, READ CAREFULLY IF WANT TO IMPLEMENT THEM
+
+  Purpose : Batch processing, signal extraction, trigger detection, and
+            interactive visualization of voltage-sensitive dye imaging (VSDI)
+            or optical mapping reconstruction data.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1. Overview
+  2. Prerequisites & Dependencies
+  3. Pipeline Architecture
+  4. Script Descriptions
+       4.1  analysis_Step1.m
+       4.2  analysis_Step1_Concatenate.m
+       4.3  analysis_Step2.m
+       4.4  analysis_Step2_Concatenate.m
+  5. Configuration Parameters
+  6. Input Data Format
+  7. Output Files
+  8. Workflow Guide (How to Run)
+  9. GUI Controls Reference
+  10. Known Limitations & Notes
+
+================================================================================
+1. OVERVIEW
+================================================================================
+
+This pipeline processes raw optical mapping reconstruction files (.mat format)
+captured from camera-based voltage-sensitive dye imaging (VSDI) experiments.
+It is designed for neurophysiology or cardiac electrophysiology labs working
+with spatiotemporal fluorescence recordings.
+
+The pipeline is divided into two major stages:
+
+  STAGE 1 - Signal Extraction (Step 1 scripts):
+    Reads raw 3D movie data, extracts 1D temporal traces, applies bandpass
+    filtering, corrects signal polarity, and optionally concatenates multiple
+    recordings into a unified timeline with automated trigger detection.
+
+  STAGE 2 - Interactive Visualization (Step 2 scripts):
+    Provides GUI-based frame-by-frame playback, manual polarity correction,
+    spatial processing tools, and trigger-aligned navigation.
+
+Two variants are provided for each stage:
+  - Basic variant    : Processes files individually.
+  - Concatenate variant : Merges files, adds trigger detection, and uses
+                          memory-efficient direct disk access.
+
+================================================================================
+2. PREREQUISITES & DEPENDENCIES
+================================================================================
+
+  Software:
+    - MATLAB R2018b or later (recommended R2020b+)
+
+  Required MATLAB Toolboxes:
+    - Signal Processing Toolbox
+        Used for: butter(), filtfilt(), skewness()
+    - Image Processing Toolbox
+        Used for: imfilter(), fspecial(), imgaussfilt(), imbinarize(),
+                  imgradient(), watershed(), bwareaopen(), imfill(), medfilt2()
+    - Statistics and Machine Learning Toolbox
+        Used for: skewness(), prctile()
+
+  Optional:
+    - drawrectangle() requires Image Processing Toolbox R2018b+
+
+  Input Data:
+    - MATLAB .mat files containing a variable named 'reconstructed_movie'
+      (3D numeric array: height x width x frames)
+    - Optionally containing 'Fs' (scalar sampling frequency in Hz)
+
+================================================================================
+3. PIPELINE ARCHITECTURE
+================================================================================
+
+  [Raw .mat Files]
+        |
+        v
+  +--------------------------+       +---------------------------------+
+  |  analysis_Step1.m        |  OR   |  analysis_Step1_Concatenate.m   |	THIS ONE IS BETTER
+  |  (Basic extraction)      |       |  (Extraction + Concatenation    |
+  |                          |       |   + Trigger Detection)          |
+  +--------------------------+       +---------------------------------+
+        |                                         |
+        v                                         v
+  [All_Experiments_Summary.mat]     [All_Experiments_Summary.mat]
+                                    [+ Concatenated_Recording]
+                                    [+ Triggers struct]
+        |                                         |
+        v                                         v
+  +--------------------------+       +---------------------------------+
+  |  analysis_Step2.m        |       |  analysis_Step2_Concatenate.m   |
+  |  (GUI Viewer + Analyzer) |       |  (Direct Disk Access Viewer     |
+  |                          |       |   + Trigger Navigation)         |
+  +--------------------------+       +---------------------------------+
+
+  Recommendation:
+    Use the _Concatenate variants together for the full feature set.
+    Use the basic variants for quick single-file inspection.
+
+================================================================================
+4. SCRIPT DESCRIPTIONS
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1  analysis_Step1.m
+     BATCH PROCESSOR: Signal Extraction & Polarity Correction (Basic)
+--------------------------------------------------------------------------------
+
+PURPOSE:
+  The entry-point script for the pipeline. Reads one or more reconstruction
+  .mat files, extracts spatially-averaged 1D temporal traces, applies
+  bandpass filtering, and corrects signal polarity automatically. Results
+  are saved to a summary .mat file for use in Step 2.
+
+WHAT IT DOES (Step by Step):
+
+  Step 1 - File Selection
+    Opens a MATLAB file browser (uigetfile) allowing the user to select one
+    or more .mat reconstruction files. Accepts multi-select. Selection can
+    be canceled safely.
+
+  Step 2 - Sampling Frequency Detection
+    Attempts to load 'Fs' directly from the .mat file. If not present,
+    tries to parse a frequency value from the filename using the pattern
+    '_XXX_' (e.g. a file named 'trial_500_01.mat' yields Fs = 500 Hz).
+    Falls back to CONFIG.default_fs (500 Hz) if neither method succeeds.
+
+  Step 3 - Spatial Averaging (Trace Extraction)
+    Collapses the 3D movie array (H x W x T) into a 1D trace by computing
+    the mean across all pixel rows and columns at each time point:
+      raw_trace(t) = mean(mean(movie(:,:,t)))
+    This gives the global fluorescence signal over time.
+
+  Step 4 - Bandpass Filtering
+    Applies a 4th-order Butterworth bandpass filter (default: 0.1 to 75 Hz)
+    using filtfilt() for zero-phase (no time-shift) filtering. Removes DC
+    drift (low-frequency baseline wander) and high-frequency noise.
+
+  Step 5 - Polarity Correction
+    Analyses the SECOND HALF of the filtered trace (frames T/2 to end).
+    Computes the skewness of this region:
+      - Positive skewness → spikes point upward → polarity is KEPT
+      - Negative skewness → spikes point downward → trace is FLIPPED (x -1)
+    Rationale: Physiological activity is assumed to be concentrated in
+    the second half of the recording. Using only the second half avoids
+    artifacts or baseline noise in the first half from biasing the decision.
+
+  Step 6 - Preview Image Generation
+    Creates a maximum intensity projection across all frames:
+      preview_img = max(movie, [], 3)
+    This gives a spatial overview of where the strongest signals occurred.
+
+  Step 7 - Data Storage & Save
+    For each file, stores the following fields in the All_Experiments struct:
+      .filename         Original filename
+      .folder           Source folder path
+      .fs               Sampling frequency (Hz)
+      .dimensions       [height, width, num_frames]
+      .trace            Polarity-corrected, filtered trace
+      .raw_trace        Original unfiltered trace (kept for reference)
+      .skewness_2nd     Skewness value used for polarity decision
+      .polarity         'KEPT' or 'FLIPPED'
+      .preview_img      Max intensity projection image
+      .time_axis        Time vector in seconds
+      .processing_date  Timestamp of processing
+
+    All data is saved to 'All_Experiments_Summary.mat'.
+
+ERROR HANDLING:
+  If a file fails (missing field, corrupt data, etc.), the error message
+  and stack trace are recorded in the struct and processing continues
+  with the next file. Failed files are counted and reported at the end.
+
+KEY CONFIGURATION (edit at top of script):
+  CONFIG.bandpass_freq  = [0.1, 75]   % Hz - filter passband
+  CONFIG.filter_order   = 4           % Butterworth order
+  CONFIG.default_fs     = 500         % Hz - fallback sampling rate
+  CONFIG.output_file    = 'All_Experiments_Summary.mat'
+
+--------------------------------------------------------------------------------
+4.2  analysis_Step1_Concatenate.m
+     BATCH PROCESSOR: Signal Extraction + Concatenation + Trigger Detection
+--------------------------------------------------------------------------------
+
+PURPOSE:
+  An extended and significantly more powerful version of analysis_Step1.m.
+  In addition to the basic signal extraction, this script sorts files
+  intelligently, trims edge frames, z-scores traces, concatenates all
+  recordings into a single unified timeline, overlays the FlexMEA72
+  electrode grid, generates multiple spatial analysis figures, and performs
+  automated trigger (stimulus onset) detection using a tangent projection
+  method.
+
+WHAT IT DOES (Step by Step):
+
+  Step 1 - Smart File Selection & Sorting
+    After file selection, files are automatically sorted by numbers embedded
+    in their filenames. The sort priority is:
+      Priority 1: E(number)B(number) pattern (e.g. E0B2 → E=0, B=2)
+                  Score = E*1,000,000 + B, ensuring correct sweep ordering.
+      Priority 2: Trailing number before .mat (e.g. trial_003.mat → 3)
+      Priority 3: Any number found anywhere in the filename
+    This ensures files are always processed in the correct experimental order
+    regardless of filesystem ordering or selection order.
+
+  Step 2 - Frame Trimming
+    Removes the first 10 frames and last 5 frames from each movie BEFORE
+    any signal extraction. This eliminates camera initialization artifacts
+    and end-of-recording noise that commonly appear at the edges of files.
+    Trimming is skipped if the file is too short.
+
+  Step 3 - Signal Extraction & Filtering
+    Same as analysis_Step1.m: spatial averaging → bandpass filter →
+    polarity correction via 2nd-half skewness analysis.
+
+  Step 4 - Z-Score Normalization
+    After polarity correction, the trace is z-scored:
+      z(t) = (trace(t) - mean(trace)) / std(trace)
+    This makes signal amplitudes comparable across different files and
+    animals, regardless of absolute fluorescence levels. If std = 0
+    (flat line), z-scoring is skipped and a warning is issued.
+
+  Step 5 - Trigger Detection Visualization (First File Only)
+    For diagnostic purposes, generates a figure for the first file showing:
+      - Raw Z-scored trace vs. smoothed detection trace (50ms moving average)
+      - Derivative of the smoothed trace
+    This helps you visually verify the smoothing and slope logic before
+    committing to trigger detection across all files.
+
+  Step 6 - FlexMEA72 Electrode Grid Overlay
+    Calculates the pixel positions of all 72 electrodes on the FlexMEA72
+    multi-electrode array and overlays them on the max-projection image.
+    Uses the following configurable parameters:
+      CONFIG.microns_per_pixel = 9.4
+      CONFIG.grid_pitch_x_um  = 625   (horizontal spacing)
+      CONFIG.grid_pitch_y_um  = 750   (vertical spacing)
+      CONFIG.elec_diam_um     = 100   (electrode diameter)
+      CONFIG.grid_dim         = [8,9] (8 columns x 9 rows)
+    GND and REF electrodes are automatically masked out (marked with red X).
+    Recording electrodes are shown as black circles scaled to actual size.
+    Displayed for the first file only as a calibration check.
+
+  Step 7 - Spatial Analysis Figures (First File Only)
+    Generates four spatial diagnostic maps:
+      a) Mean Projection  : Average pixel value across all frames (anatomy)
+      b) Max Projection   : Maximum pixel value per location (peak activity)
+      c) Std Dev Map      : Standard deviation per pixel (activity variability)
+      d) Delta-F/F Map    : (F_max - F0) / F0 where F0 is the median frame
+                            (normalized activation strength)
+    Also generates a Harvesting Analysis panel with three subplots:
+      - Spatial Gradient map (border detection of active regions)
+      - Watershed segmentation (automatic region parcellation)
+      - Time-to-Peak Wavefront map (propagation direction visualization)
+
+  Step 8 - Concatenation
+    If the user selects "YES" when prompted, all z-scored traces are
+    appended end-to-end into a single long vector. A unified time axis
+    is created. File boundary locations are stored as 'segments' with:
+      .file_index     Which file this segment came from
+      .filename       Original filename
+      .start_frame    Global frame index where this file begins
+      .end_frame      Global frame index where this file ends
+      .num_frames     Number of frames in this file
+      .fs             Sampling frequency
+      .polarity       'KEPT' or 'FLIPPED'
+
+  Step 9 - Concatenation Diagnostics
+    After concatenation, generates three additional figures:
+      a) Concatenated Trace Preview: Full trace with red dashed segment
+         boundary lines and file labels
+      b) Signal vs. Derivative: Two-subplot figure showing the full trace
+         above and its derivative below, both with segment boundaries marked
+      c) Max Peak Per File: Marks the single highest amplitude point within
+         each file segment with a red star and file index label
+      d) Overlapping Dual-Axis: yyaxis figure combining signal (left axis)
+         and derivative (right axis) on a single plot with peak markers
+
+  Step 10 - Smart Trigger Detection (Tangent Projection Method)
+    For each file segment in the concatenated recording, detects the
+    stimulus onset time using a three-step geometric method:
+
+      A. Find Peak: Locate the maximum amplitude point in the segment.
+         This is the signal apex (marked with red star).
+
+      B. Find Max Slope: Search within a 200ms window before the peak
+         for the point of steepest positive rise in the derivative.
+         This is the inflection / acceleration point (blue circle).
+
+      C. Project Tangent to Baseline: Draw a line through the max-slope
+         point with slope = deriv_value * Fs. Find where this line
+         crosses zero (the assumed baseline for z-scored data).
+         This intercept is the calculated onset time (green marker).
+
+         Formula: t_onset = t_slope - (amplitude_at_slope / (slope * Fs))
+
+    All trigger data is stored in a 'Triggers' struct:
+      .method           'TangentProjection'
+      .num_triggers     Number of triggers (= number of file segments)
+      .t_onset_sec      Calculated onset times (seconds, global timeline)
+      .t_peak_sec       Peak times (seconds, global timeline)
+      .t_maxslope_sec   Max-slope times (seconds, global timeline)
+      .peak_amplitude   Peak Z-score amplitude per file
+      .onset_frame      Global frame index of each onset
+      .fs               Sampling frequency used
+
+  Step 11 - Saving
+    Saves everything to All_Experiments_Summary.mat:
+      - All_Experiments struct (individual file data)
+      - CONFIG struct
+      - Concatenated_Recording struct (if concatenation was used)
+      - Triggers struct as a top-level variable (for easy Step 2 access)
+
+  Step 12 - Overlay Figure
+    If more than one file was processed, generates a final overlay figure
+    showing all individual traces plotted together in different colors,
+    plus a bold black average trace for comparison.
+
+KEY CONFIGURATION (edit at top of script):
+  CONFIG.bandpass_freq       = [0.1, 75]
+  CONFIG.filter_order        = 4
+  CONFIG.default_fs          = 500
+  CONFIG.output_file         = 'All_Experiments_Summary.mat'
+  CONFIG.enable_concatenation = true
+  CONFIG.microns_per_pixel   = 9.4
+  CONFIG.grid_pitch_x_um    = 625
+  CONFIG.grid_pitch_y_um    = 750
+  CONFIG.elec_diam_um        = 100
+  CONFIG.grid_dim            = [8, 9]
+
+--------------------------------------------------------------------------------
+4.3  analysis_Step2.m
+     INTERACTIVE VIEWER: Batch Experiment Browser & Movie Analyzer
+--------------------------------------------------------------------------------
+
+PURPOSE:
+  A full GUI application for reviewing, manually correcting, and interactively
+  exploring the data produced by analysis_Step1.m. Provides a file browser,
+  1D trace viewer, spatial preview, and a full movie analyzer window with
+  spatial processing tools.
+
+MAIN WINDOW LAYOUT:
+
+  Left Panel (Sweeps):
+    - Total file count label
+    - Listbox with all filenames (click to select and preview)
+    - Info panel: shows file duration, frame count, flip status
+    - "GLOBAL POLARITY FLIP" button (orange)
+    - "FLIP TRACE ONLY" button (blue-purple)
+
+  Right Panel (Signal Visualization):
+    - Large axes showing the 1D trace of the selected file
+    - Small axes showing the max-projection preview image
+    - "OPEN ANALYZER" button (blue)
+
+WHAT EACH BUTTON DOES:
+
+  GLOBAL POLARITY FLIP (orange):
+    Permanently modifies BOTH the 1D trace in the summary file AND the
+    reconstructed_movie in the original .mat file (x -1). Use this when
+    the Step 1 automatic polarity correction made the wrong decision and
+    you need the movie data itself corrected (e.g. for spatial analysis).
+    This is a TOGGLE: pressing again restores original polarity.
+    A confirmation dialog is shown before any changes are written.
+
+  FLIP TRACE ONLY (blue-purple):
+    Permanently modifies ONLY the 1D trace in the summary file.
+    The original .mat movie file is NOT touched. Use this for display
+    or analysis corrections when you only need the trace to be flipped.
+    This is also a TOGGLE with a confirmation dialog.
+
+  OPEN ANALYZER (blue):
+    Loads the full 3D reconstructed_movie from the selected file's original
+    .mat path into a new Analyzer window. This is memory-intensive for
+    large files. The button shows "LOADING..." while the movie loads.
+
+THE ANALYZER WINDOW:
+
+  Layout:
+    - Top subplot: 1D trace with a blue vertical line (current frame marker)
+    - Bottom subplot: Full-resolution movie frame (imagesc with jet colormap)
+    - Slider: Scrub through frames
+    - Text display: Current frame number and time in milliseconds
+    - Processing buttons (top right area)
+    - "Global Colormap" checkbox: When checked, uses a fixed color scale
+      (min to 99.9th percentile) across all frames for consistent comparison.
+      When unchecked, color scale auto-adjusts per frame.
+
+  NAVIGATION:
+    - Slider: Drag to any frame
+    - Left/Right arrow keys: Step ±1 frame
+    - Up/Down arrow keys: Step ±10 frames
+    - Click on trace: Jumps the movie to the clicked time point
+
+  PROCESSING BUTTONS:
+
+    Background Subtract (green → red when active):
+      Prompts you to draw a rectangular ROI on the movie frame over a region
+      that should be signal-free (background tissue or off-tissue area).
+      Computes the mean trace from this ROI across all frames, then
+      subtracts it from every pixel at every frame in the original movie.
+      This corrects for global illumination drift and photobleaching.
+      Click again ("Remove Bkg Sub") to disable and restore the original movie.
+
+    Spatial Low-Pass (green → red when active):
+      Applies a 2D Gaussian spatial filter (9x9 kernel, sigma=2) to every
+      frame of the movie. Reduces pixel-level noise and sharpens the
+      appearance of activation domains, similar to smoothing used in
+      published VSDI figures. Click again to disable.
+
+    Positive Only (three-state toggle):
+      State 0 (green,  "Positive Only"):     No rectification applied.
+      State 1 (blue,   "Show POS Only"):     All negative values clipped to 0.
+                                             Shows only depolarization signals.
+      State 2 (orange, "Show NEG Inverted"): Inverts the movie (x -1) then
+                                             clips negatives to 0. Shows only
+                                             hyperpolarization signals inverted
+                                             to appear as positive activations.
+      Automatically enables the Global Colormap when activated for better
+      visualization of the rectified signal.
+
+    Mark Trigger (red):
+      Drops a red dashed vertical line on the trace at the current frame's
+      time position. Also adds a time label. Use this to manually annotate
+      stimulus onset or other events of interest. Marks accumulate and are
+      not individually removable (use RESET ALL to clear).
+
+    RESET ALL (dark red):
+      Restores the movie and trace to the state they were in when the
+      Analyzer window was first opened (i.e. the original movie data,
+      before any background subtraction, spatial filtering, or rectification).
+      Also resets all button states to their default (inactive) colors.
+
+  PROCESSING PIPELINE (applyAllProcessing):
+    Note: When any processing button is toggled, all active processing steps
+    are reapplied from scratch in this fixed order:
+      1. Dynamic baseline normalization (subtracts pre-stimulus mean frame)
+      2. Spatial Gaussian smoothing (if Spatial Low-Pass is active)
+      3. Positive-only rectification (clip all values < 0)
+      4. Intensity threshold (zero out values below 10% of frame maximum)
+    Steps 1, 3, and 4 are always applied when any processing is active.
+    This is important to be aware of when interpreting processed frames.
+
+--------------------------------------------------------------------------------
+4.4  analysis_Step2_Concatenate.m
+     INTERACTIVE VIEWER: Direct Disk Access + Trigger Navigation
+--------------------------------------------------------------------------------
+
+PURPOSE:
+  A memory-efficient GUI viewer designed specifically for the concatenated
+  output from analysis_Step1_Concatenate.m. Rather than loading entire
+  movies into RAM, it uses MATLAB's matfile() object to read individual
+  frames directly from disk on demand. Supports both a virtual concatenated
+  view and individual file views, with trigger onset markers and keyboard
+  shortcuts for trigger-aligned navigation.
+
+  This script is the preferred viewer when:
+    - Working with multiple large files that would exceed available RAM
+    - Trigger onset markers from Step 1 need to be visible during review
+    - You need to navigate across file boundaries seamlessly
+
+MAIN WINDOW LAYOUT:
+
+  Left Panel (Files):
+    - Listbox showing either:
+        "CONCATENATED VIEW" (if concatenation data exists) at the top
+        Individual filenames below
+    - Info text at the bottom
+
+  Right Panel (Preview):
+    - Trace axes: Shows trace of selected file/concat, with trigger
+      onset markers (green vertical lines) and file boundaries (red dashed)
+    - Image axes: Max-projection preview (for individual files)
+    - "OPEN ANALYZER" button
+
+THE CONCATENATED ANALYZER (opened from "CONCATENATED VIEW"):
+
+  How It Works:
+    Instead of holding all movie data in memory, this analyzer pre-creates
+    a matfile() map object for each source file. When navigating to a
+    global frame index:
+      1. Determines which file segment this global frame belongs to
+      2. Calculates the local frame index within that file
+      3. Reads ONLY that single frame from disk: mObj.reconstructed_movie(:,:,f)
+      4. Applies any active filters
+      5. Displays the frame
+    This allows seamless navigation across the full concatenated timeline
+    with minimal memory usage.
+
+  TRIGGER DISPLAY:
+    Green vertical lines are drawn on the trace at all trigger onset times
+    loaded from the Triggers struct. Labels "T1", "T2", etc. identify each.
+    The title bar shows proximity to the nearest trigger when within 0.5s:
+      "Time: 1.234s | File 2/4 (filename.mat) | Trigger T2 (0.023s from onset)"
+
+  SPATIAL BLUR CHECKBOX:
+    Applies imgaussfilt(frame, 1.5) on-the-fly as each frame is read from
+    disk. This is a lightweight denoising option during live playback.
+
+  NAVIGATION:
+    - Slider: Scrub through entire concatenated timeline
+    - Left/Right arrow keys: ±1 global frame
+    - Up/Down arrow keys: ±10 global frames
+    - Click on trace: Jump to clicked time
+    - Press 'T': Jump to the NEXT trigger onset AHEAD of the current frame.
+                 Cycles forward through all triggers. Wraps to T1 after last.
+                 Prints confirmation to Command Window:
+                   "→ Jumped to Trigger T2 at 3.456s (frame 1728)"
+
+THE STANDARD ANALYZER (opened from individual file selection):
+
+  Creates a simpler single-file analyzer window using matfile() for
+  disk-efficient frame access. Shows the same trace and movie display,
+  with the trigger onset for that specific file marked as a green line.
+
+  The title bar shows time-from-onset for every frame:
+    "Frame 245 (1.23 s) | 0.045s from onset"
+
+  Press 'T' to jump directly to the onset frame of the trigger for that file.
+
+================================================================================
+5. CONFIGURATION PARAMETERS
+================================================================================
+
+  All configurable parameters are in the CONFIG struct at the top of each
+  Step 1 script. Edit these before running:
+
+  Parameter                 Default    Description
+  ------------------------  ---------  -----------------------------------------
+  CONFIG.bandpass_freq      [0.1, 75]  Bandpass filter range in Hz.
+                                       Lower bound removes DC/slow drift.
+                                       Upper bound removes high-freq noise.
+                                       Adjust based on your signal bandwidth.
+
+  CONFIG.filter_order       4          Butterworth filter order.
+                                       Higher = steeper roll-off but more
+                                       ringing. 4 is standard for VSDI.
+
+  CONFIG.default_fs         500        Fallback sampling frequency in Hz.
+                                       Used only if Fs is absent from file
+                                       and cannot be parsed from filename.
+
+  CONFIG.output_file        'All_     Output filename for summary data.
+                            Experiments
+                            _Summary
+                            .mat'
+
+  CONFIG.enable_concatenation true     Whether to offer concatenation mode.
+                                       (Concatenate script only)
+
+  CONFIG.microns_per_pixel  9.4        Camera spatial resolution.
+                                       Used for MEA grid overlay scaling.
+                                       Formula: (pixel_size * binning)
+
+  CONFIG.grid_pitch_x_um   625        FlexMEA72 horizontal electrode pitch
+                                       in micrometers.
+
+  CONFIG.grid_pitch_y_um   750        FlexMEA72 vertical electrode pitch
+                                       in micrometers.
+
+  CONFIG.elec_diam_um       100        FlexMEA72 electrode diameter in um.
+                                       Used to scale circles in overlay.
+
+  CONFIG.grid_dim           [8, 9]    FlexMEA72 grid dimensions:
+                                       [num_columns, num_rows] = [8, 9].
+
+================================================================================
+6. INPUT DATA FORMAT
+================================================================================
+
+  Each input file must be a MATLAB .mat file containing at minimum:
+
+  Variable: reconstructed_movie
+    Type   : 3D numeric array (single or double)
+    Size   : [height x width x num_frames]
+    Values : Raw or pre-processed fluorescence pixel intensities
+    Notes  : This is the only required variable.
+
+  Variable: Fs  (optional but recommended)
+    Type   : scalar double
+    Value  : Sampling frequency in Hz (e.g. 500)
+    Notes  : If absent, the script attempts to parse Fs from the filename
+             using the pattern '_NNN_' or falls back to default (500 Hz).
+
+  Filename Conventions (for auto-sorting in Step1_Concatenate):
+    Recommended : ExpName_E0B0_500Hz.mat, ExpName_E0B1_500Hz.mat, ...
+    Alternative : Recording_001.mat, Recording_002.mat, ...
+    Any file    : Any embedded integer will be used for sorting.
+
+================================================================================
+7. OUTPUT FILES
+================================================================================
+
+  All_Experiments_Summary.mat
+    Contains the following MATLAB variables:
+
+    All_Experiments (struct array, one entry per processed file):
+      .filename          String  : Original filename
+      .folder            String  : Source folder path
+      .fs                Double  : Sampling frequency (Hz)
+      .dimensions        [1x3]   : [height, width, num_frames]
+      .trace             [Nx1]   : Processed 1D trace (filtered, polarity-
+                                   corrected, z-scored if concatenate script)
+      .raw_trace         [Nx1]   : Original unfiltered trace
+      .skewness_2nd      Double  : Skewness of 2nd half (polarity decision)
+      .polarity          String  : 'KEPT' or 'FLIPPED'
+      .preview_img       [HxW]   : Max intensity projection image
+      .time_axis         [1xN]   : Time vector in seconds
+      .processing_date   String  : Processing timestamp
+      .error             String  : (only if processing failed) Error message
+      .polarity_flipped  Logical : (added by Step2) Manual global flip flag
+      .trace_only_flipped Logical: (added by Step2) Manual trace flip flag
+
+    CONFIG (struct):
+      Contains all configuration parameters used during processing.
+
+    Concatenated_Recording (struct, only if concatenation was used):
+      .trace                [Nx1]  : Full concatenated z-scored trace
+      .time_axis            [Nx1]  : Unified time axis in seconds
+      .fs                   Double : Sampling frequency
+      .total_frames         Int    : Total frame count across all files
+      .num_files            Int    : Number of files merged
+      .num_segments         Int    : Number of valid segments stored
+      .file_segments        Struct : Array of segment metadata (see Section 4.2)
+      .segment_start_times  [Mx1]  : Start time of each segment in seconds
+      .creation_date        String : Timestamp
+      .Triggers             Struct : Nested trigger data (also saved separately)
+
+    Triggers (struct, top-level for easy access, only if concatenation used):
+      .method           String  : 'TangentProjection'
+      .lookback_sec     Double  : Lookback window used (default 0.2s)
+      .num_triggers     Int     : Number of triggers detected
+      .file_index       [Mx1]   : File index for each trigger
+      .filename         {Mx1}   : Filename cell array
+      .t_onset_sec      [Mx1]   : Calculated onset time (global, seconds)
+      .t_peak_sec       [Mx1]   : Peak time (global, seconds)
+      .t_maxslope_sec   [Mx1]   : Max-slope time (global, seconds)
+      .peak_amplitude   [Mx1]   : Peak Z-score amplitude per file
+      .onset_frame      [Mx1]   : Global frame index of each onset
+      .fs               Double  : Sampling frequency
+      .creation_date    String  : Timestamp
+
+================================================================================
+8. WORKFLOW GUIDE (HOW TO RUN)
+================================================================================
+
+  OPTION A: BASIC WORKFLOW (Individual Files)
+  --------------------------------------------
+  1. Open MATLAB and navigate to the folder containing your scripts.
+  2. Run analysis_Step1.m
+       >> run('analysis_Step1.m')
+     - Select your .mat reconstruction files when the browser opens.
+     - Wait for processing to complete. Check Command Window for status.
+     - Verify 'All_Experiments_Summary.mat' was created in the working folder.
+  3. Run analysis_Step2.m
+       >> run('analysis_Step2.m')
+     - The GUI browser opens automatically.
+     - Click a filename in the left panel to preview its trace.
+     - Use "GLOBAL POLARITY FLIP" or "FLIP TRACE ONLY" if needed.
+     - Click "OPEN ANALYZER" to enter the full movie viewer.
+
+  OPTION B: FULL WORKFLOW (Concatenated + Triggers) [RECOMMENDED]
+  ----------------------------------------------------------------
+  1. Open MATLAB and navigate to the folder containing your scripts.
+  2. Run analysis_Step1_Concatenate.m
+       >> run('analysis_Step1_Concatenate.m')
+     - Select all .mat files for one experiment session.
+     - Files are auto-sorted by name. Verify the order in Command Window.
+     - Choose "YES - Concatenate" when prompted.
+     - Multiple diagnostic figures are generated automatically. Review them.
+     - Check the Smart Trigger Detection figure to verify green onset markers.
+     - Verify 'All_Experiments_Summary.mat' was saved with triggers.
+  3. Run analysis_Step2_Concatenate.m
+       >> run('analysis_Step2_Concatenate.m')
+     - Select "CONCATENATED VIEW" in the left panel for the unified timeline.
+     - Click "OPEN ANALYZER" to enter the direct-access movie viewer.
+     - Press 'T' to jump between trigger onset frames.
+     - Use arrow keys to step frame by frame around events of interest.
+
+  TIPS:
+    - Always run scripts from the folder containing your data, or ensure
+      the folder path is correct in S.folder fields.
+    - If you re-run Step 1 with new settings, the old summary file is
+      overwritten. Rename it first if you want to keep previous results.
+    - The variable 'files' and 'path_name' persist in the workspace between
+      runs of Step1_Concatenate.m (by design). Use 'clear' to force
+      re-selection of files.
+
+================================================================================
+9. GUI CONTROLS REFERENCE
+================================================================================
+
+  analysis_Step2.m - Main Window:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Control                  │ Action                                        │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ File Listbox             │ Click to select and preview a file            │
+  │ GLOBAL POLARITY FLIP     │ Toggle flip of trace + movie in original file │
+  │ FLIP TRACE ONLY          │ Toggle flip of trace only in summary file     │
+  │ OPEN ANALYZER            │ Load full movie into Analyzer window          │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  analysis_Step2.m - Analyzer Window:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Control                  │ Action                                        │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ Slider                   │ Scrub to any frame                            │
+  │ Left/Right Arrow         │ Step ±1 frame                                 │
+  │ Up/Down Arrow            │ Step ±10 frames                               │
+  │ Click on Trace           │ Jump movie to clicked time                    │
+  │ Background Subtract      │ Toggle ROI-based background subtraction       │
+  │ Spatial Low-Pass         │ Toggle Gaussian spatial smoothing             │
+  │ Positive Only            │ Cycle: off → positive only → negative inv.   │
+  │ Mark Trigger             │ Add red dashed line at current time           │
+  │ RESET ALL                │ Restore original movie and trace              │
+  │ Global Colormap checkbox │ Toggle fixed vs. auto color scale             │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  analysis_Step2_Concatenate.m - Concatenated Analyzer:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Control                  │ Action                                        │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ Slider                   │ Scrub through full concatenated timeline      │
+  │ Left/Right Arrow         │ Step ±1 global frame                          │
+  │ Up/Down Arrow            │ Step ±10 global frames                        │
+  │ Click on Trace           │ Jump to clicked time on concatenated trace    │
+  │ Press 'T'                │ Jump to next trigger onset (cycles forward)   │
+  │ Spatial Blur checkbox    │ Toggle on-the-fly Gaussian frame smoothing    │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+10. KNOWN LIMITATIONS & NOTES
+================================================================================
+
+  1. POLARITY CORRECTION RELIABILITY:
+     The skewness-based polarity correction works well when there is clear
+     physiological activity with sharp spikes in the second half. For weak
+     or noisy signals, or recordings where activity spans the full duration,
+     the automatic detection may be incorrect. Always visually verify in
+     Step 2 and use the flip buttons if needed.
+
+  2. HARDCODED PROCESSING IN applyAllProcessing (analysis_Step2.m):
+     The processing pipeline in the Analyzer window always applies baseline
+     normalization (using first 50ms as pre-stimulus), positive rectification,
+     and 10%-of-max thresholding whenever ANY processing button is active.
+     These steps are not individually toggleable. Be aware of this when
+     interpreting processed output.
+
+  3. TRIGGER DETECTION ASSUMPTION:
+     The tangent projection method assumes the signal baseline is
+     approximately zero (valid for z-scored data). If your traces have a
+     non-zero baseline, the onset time estimate will be shifted. The
+     lookback window (default 200ms) may also need adjustment for slower
+     or faster signal rises.
+
+  4. MEMORY USAGE:
+     analysis_Step2.m loads the entire reconstructed_movie into RAM when
+     "OPEN ANALYZER" is clicked. For large files (e.g. 512x512x2000 frames
+     in double precision ≈ 4 GB), this may exhaust available memory.
+     Use analysis_Step2_Concatenate.m instead for large datasets.
+
+  5. SINGLE SAMPLING RATE ASSUMED:
+     The concatenation assumes all files have the same sampling frequency.
+     If files have different Fs values, the time axis will be incorrect.
+     The Fs of the first successfully processed file is used for the
+     concatenated time axis.
+
+  6. FILE PATH DEPENDENCY:
+     Step 2 scripts rely on the folder path stored in All_Experiments.folder
+     to locate original .mat files. If you move your data files after
+     running Step 1, the Analyzer and global flip features will fail with
+     a "File Not Found" error. Re-run Step 1 from the new location, or
+     manually update the .folder fields in the summary .mat file.
+
+  7. FLEXMEA72 GRID CENTERING:
+     The electrode grid is centered on the image center (width/2, height/2).
+     If your MEA is not centered in the field of view, the overlay will be
+     offset. Adjust center_x and center_y in the script to match your setup.
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

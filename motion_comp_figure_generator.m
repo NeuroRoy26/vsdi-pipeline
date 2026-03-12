@@ -121,35 +121,35 @@ else
 end
 
 %% ------------------------------------------------------------------------
-% % 5. QUANTITATIVE VALIDATION
-% % -------------------------------------------------------------------------
-% 
-% % ---- Sharpness Metric (Variance of Laplacian) ----
-% lap_raw  = del2(avg_raw);
-% lap_corr = del2(avg_corr);
-% 
-% sharp_raw  = var(lap_raw(:));
-% sharp_corr = var(lap_corr(:));
-% 
-% % ---- Temporal Stability ----
-% raw_std_map  = std(raw_struct, 0, 3);
-% corr_std_map = std(corr_struct, 0, 3);
-% 
-% mean_raw_std  = mean(raw_std_map(:));
-% mean_corr_std = mean(corr_std_map(:));
-% 
-% fprintf('\n=== MOTION CORRECTION VALIDATION ===\n');
-% fprintf('Sharpness (Variance of Laplacian)\n');
-% fprintf('RAW:        %.4f\n', sharp_raw);
-% fprintf('CORRECTED:  %.4f\n', sharp_corr);
-% fprintf('Improvement: %.2f %%\n', ...
-%     100*(sharp_corr - sharp_raw)/sharp_raw);
-% 
-% fprintf('\nTemporal Pixel STD\n');
-% fprintf('RAW:        %.4f\n', mean_raw_std);
-% fprintf('CORRECTED:  %.4f\n', mean_corr_std);
-% fprintf('Reduction:  %.2f %%\n', ...
-%     100*(mean_raw_std - mean_corr_std)/mean_raw_std);
+% 5. QUANTITATIVE VALIDATION
+% -------------------------------------------------------------------------
+
+% ---- Sharpness Metric (Variance of Laplacian) ----
+lap_raw  = del2(avg_raw);
+lap_corr = del2(avg_corr);
+
+sharp_raw  = var(lap_raw(:));
+sharp_corr = var(lap_corr(:));
+
+% ---- Temporal Stability ----
+raw_std_map  = std(raw_struct, 0, 3);
+corr_std_map = std(corr_struct, 0, 3);
+
+mean_raw_std  = mean(raw_std_map(:));
+mean_corr_std = mean(corr_std_map(:));
+
+fprintf('\n=== MOTION CORRECTION VALIDATION ===\n');
+fprintf('Sharpness (Variance of Laplacian)\n');
+fprintf('RAW:        %.4f\n', sharp_raw);
+fprintf('CORRECTED:  %.4f\n', sharp_corr);
+fprintf('Improvement: %.2f %%\n', ...
+    100*(sharp_corr - sharp_raw)/sharp_raw);
+
+fprintf('\nTemporal Pixel STD\n');
+fprintf('RAW:        %.4f\n', mean_raw_std);
+fprintf('CORRECTED:  %.4f\n', mean_corr_std);
+fprintf('Reduction:  %.2f %%\n', ...
+    100*(mean_raw_std - mean_corr_std)/mean_raw_std);
 
 %% ------------------------------------------------------------------------
 % 6. DISPLAY (3 PANEL)

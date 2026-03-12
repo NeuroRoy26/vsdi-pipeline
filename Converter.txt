@@ -1,0 +1,128 @@
+================================================================================
+PART OF VOLTAGE-SENSITIVE DYE IMAGING (VSDI) PROCESSING PIPELINE
+================================================================================
+DEPENDENCIES & SETUP
+
+Before running these scripts, ensure you have the required Python packages installed. 
+You can install them via pip using your terminal or command prompt:
+
+pip install numpy h5py opencv-python matplotlib scipy psutil tqdm
+
+(Note: Modules like os, sys, struct, pathlib, glob, json, and argparse are part 
+of the standard Python library and do not need to be installed separately.)
+
+--------------------------------------------------------------------------------
+1. RAW DATA CONVERSION & MANAGEMENT
+--------------------------------------------------------------------------------
+Scripts for moving data from hardware-specific formats into standard, Python-friendly 
+structures.
+
+* convert_blk_to_hdf5.py
+  Purpose: The simplest, single-file converter. It strips the header from a .blk 
+  file, reads the raw 16-bit image array, and saves it into an .h5 (HDF5) file.
+
+* blk_batch_converter.py
+  Purpose: A standard batch converter that processes an entire directory of .blk 
+  files into .h5 format. It loads entire files into memory before saving, making 
+  it suitable for systems with plenty of RAM.
+
+* optimized_blk_converter.py
+  Purpose: A heavy-duty, memory-efficient batch converter for massive datasets 
+  (e.g., 67+ GB). It dynamically calculates chunk sizes based on your system's 
+  available RAM and streams data directly from the .blk file into a compressed 
+  .h5 dataset.
+
+* blk_log_parser.py
+  Purpose: A metadata extraction tool. It parses the hardware's text log files 
+  to extract trial numbers, timestamps, block sizes, and frame rates, compiling 
+  them into a clean, searchable .json file.
+
+--------------------------------------------------------------------------------
+2. CORE SIGNAL PROCESSING & ANALYSIS (OBSOLETE, DO NOT USE)
+--------------------------------------------------------------------------------
+Scripts for applying mathematical corrections and extracting biological signals 
+from the raw pixel data.
+
+* processin.py
+  Purpose: The analytical core of the pipeline. It loads .h5 data, separates 
+  alternating illumination channels (green/blue), subtracts dark-field noise, 
+  applies bleaching correction, uses detrending (polynomial/linear) to fix 
+  baseline drift, and computes the final dF/F signal. It also generates noise 
+  heatmaps for quality control.
+
+* process_vsd.py
+  Purpose: A specialized image enhancement script. It applies OpenCV's Histogram 
+  Equalization to the frames to maximize visual contrast, exports a side-by-side 
+  comparison video, and saves the enhanced arrays back to a new .h5 file.
+
+--------------------------------------------------------------------------------
+3. BATCH VIDEO EXTRACTION, DEMUXING & STITCHING
+--------------------------------------------------------------------------------
+Scripts for handling large numbers of files, demultiplexing interleaved frames, 
+and turning numerical arrays into presentation-ready movies.
+
+* batch_demux_1000.py
+  Purpose: A smart demultiplexer for 1000Hz recordings. It calculates pixel 
+  variance to automatically detect which frames are high vs. low contrast, splits 
+  the interleaved array, and exports two separate 500Hz videos with overlays.
+
+* batch_high_contrast.py / batch_low_contrast.py
+  Purpose: Scans directories of .h5 files, blindly isolates the high-contrast 
+  (odd) or low-contrast (even) frames, adds metadata text overlays, and exports 
+  them as .mp4 videos.
+
+* ext_visualization.py / ext_visualizer_v2.py
+  Purpose: Fast .mp4 video exporters for .h5 files. They normalize pixel 
+  intensities for human viewing. V2 is explicitly built for interleaved data, 
+  capable of exporting split-screen comparison videos at precisely 500.67 fps.
+
+* video_stitcher.py
+  Purpose: Takes folders full of individual .mp4 trial videos and stitches them 
+  together into one continuous master video. It uses natural sorting and overlays 
+  a semi-transparent box showing the current file name and global frame count.
+
+--------------------------------------------------------------------------------
+4. MOTION CORRECTION VISUALIZATION (ONLY USE ON MOTION CORRECTED FILES)
+--------------------------------------------------------------------------------
+Scripts designed to visually validate motion correction algorithms by placing 
+raw and corrected data side-by-side.
+
+* raw_vs_motion_visualization.py
+  Purpose: Evaluates motion correction by blending structural and functional 
+  channels using 5 complex mixing modes (alpha_blend, additive, screen, overlay, 
+  maximum). Exports videos at multiple frame rates.
+
+* raw_vs_motion_visualization_v2.py
+  Purpose: A streamlined version of the visualizer. It drops the complex blending 
+  modes for a standard pseudocolor map (Cyan/Magenta) and introduces a command-line 
+  toggle to export clean, weighted grayscale videos instead.
+
+* raw_vs_motion_visua_v3.py
+  Purpose: The most refined motion correction visualizer. Retains the features 
+  of V2 but adds a toggle to disable percentile-based contrast enhancement, 
+  allowing you to view the data using true natural min-max scaling.
+
+--------------------------------------------------------------------------------
+5. DIAGNOSTIC & INSPECTION TOOLS
+--------------------------------------------------------------------------------
+Lightweight utilities to peek at your data, visualize metadata, and troubleshoot 
+without running heavy processing jobs.
+
+* inspect_blk.py
+  Purpose: Reads the binary header of a .blk file to extract dimensions, data 
+  types, and frame counts. It runs a consistency check against the file size to 
+  detect corruption without loading massive image arrays into memory.
+
+* blk_footer.py
+  Purpose: Extracts and plots the analog/electrophysiology signals (like stimulus 
+  triggers or ECG) that are appended to the very end of .blk files.
+
+* hdf5_frames_viewer.py
+  Purpose: A quick "sanity check" script that uses Matplotlib to display the 
+  first 10 frames of an .h5 file, ensuring the conversion worked correctly 
+  before further processing.
+
+* embedded_visualization.py
+  Purpose: An interactive, Matplotlib-based exploratory tool. It plots the global 
+  mean intensity of frames to spot sudden drops (e.g., an LED turning off) and 
+  provides pop-up animation windows with live statistical readouts.
