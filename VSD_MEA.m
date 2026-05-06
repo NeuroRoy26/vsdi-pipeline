@@ -35,10 +35,8 @@ erpPostSecs  = 0.200;
 baseRange    = [0.01, 0.05];
 roiRange     = [-0.02, 0.16];
 % --- Fig 11: optical dipole baseline correction ---
-% Pre-trigger window (ms) used to compute the resting-state offset.
-% Adjust if your pre-trigger epoch is longer/shorter.
-optical_baseline_pre_ms  = -20;   % start of baseline window (ms, relative to trigger)
-optical_baseline_post_ms =   0;   % end   of baseline window (ms, relative to trigger)
+optical_baseline_pre_ms  = -20;
+optical_baseline_post_ms =   0;
 
 %% =========================================================================
 % SECTION B — VSD: LOAD BACKGROUND
@@ -743,20 +741,24 @@ set(hFig,'KeyPressFcn',@onKeyPress);
 mea_grid_mat   = 'mea_grid_pos.mat';
 vsd_time_ms_f8 = ((plot_frames - smart_trigger_idx) / Fs) * 1000;
 n_vsd_frames   = length(plot_frames);
-% INCREASING GRID SIZE DEFAULT BY 2x (was 0.60/0.70)
-mea_grid_w_default = round(orig_w * 1.20);
-mea_grid_h_default = round(orig_h * 1.40);
+
+mea_grid_w_default = round(orig_w * 1.80);
+mea_grid_h_default = round(orig_h * 2.10);
+
+force_reposition_mea = false;
+
 grid_ready = exist('mea_grid_pos','var') && isnumeric(mea_grid_pos) && numel(mea_grid_pos)==4;
-if ~grid_ready && exist(mea_grid_mat,'file')
+if ~force_reposition_mea && ~grid_ready && exist(mea_grid_mat,'file')
     tmp = load(mea_grid_mat,'mea_grid_pos');
     mea_grid_pos = tmp.mea_grid_pos;
     grid_ready   = true;
     fprintf('MEA grid position loaded from %s.\n', mea_grid_mat);
+elseif force_reposition_mea
+    grid_ready = false;
+    fprintf('Force-repositioning MEA grid (force_reposition_mea = true).\n');
 end
 if ~grid_ready
     fprintf('\n--- Place MEA electrode grid ---\n');
-    fprintf('    Click anywhere (even outside the image) to reposition.\n');
-    fprintf('    Press Enter to confirm.\n');
     ref_fi    = max(1, round(n_vsd_frames/2));
     ref_frame = double(bg_uint8);
     for k = 1:num_files
@@ -773,24 +775,19 @@ if ~grid_ready
     init_cy     = orig_h / 2;
     mea_grid_w  = mea_grid_w_default;
     mea_grid_h  = mea_grid_h_default;
-    
     fig_grid = figure('Name','Place MEA Grid — click to move, Enter to confirm',...
         'Color','k','Position',[200 150 900 750],'Pointer','crosshair');
     ax_grid  = axes('Parent',fig_grid,'Position',[0.05 0.05 0.90 0.90]);
     hRefImg  = imshow(ref_frame,'Parent',ax_grid);
     hold(ax_grid,'on');
-    
-    % --- NEW: Expand axes limits so you can click in the void outside the image ---
     xlim(ax_grid, [-orig_w*0.8, orig_w*1.8]);
     ylim(ax_grid, [-orig_h*0.8, orig_h*1.8]);
-    
     title(ax_grid,'Click anywhere to position grid  |  Press Enter to confirm',...
         'Color','y','FontSize',12,'FontWeight','bold');
     [init_ex,init_ey,init_bx,init_by] = grid_from_centre(init_cx,init_cy,mea_grid_w,mea_grid_h,elec_norm_x,elec_norm_y);
     h_dots   = scatter(ax_grid,init_ex,init_ey,30,'w','filled','MarkerEdgeColor','k','LineWidth',0.5);
     h_border = plot(ax_grid,init_bx,init_by,'y--','LineWidth',1.2);
     drawnow;
-    
     setappdata(fig_grid,'ax_grid',     ax_grid);
     setappdata(fig_grid,'h_dots',      h_dots);
     setappdata(fig_grid,'h_border',    h_border);
@@ -800,13 +797,10 @@ if ~grid_ready
     setappdata(fig_grid,'elec_norm_y', elec_norm_y);
     setappdata(fig_grid,'cx',          init_cx);
     setappdata(fig_grid,'cy',          init_cy);
-    
-    % --- NEW: Detect clicks on the whole window, not just the image ---
     set(fig_grid, 'WindowButtonDownFcn', @mea_grid_click);
     set(fig_grid, 'KeyPressFcn',    @mea_grid_keypress);
     set(fig_grid, 'CloseRequestFcn',@(src,~) mea_grid_confirm_close(src));
     waitfor(fig_grid,'UserData','confirmed');
-    
     if isvalid(fig_grid)
         cx_final = getappdata(fig_grid,'cx');
         cy_final = getappdata(fig_grid,'cy');
@@ -815,9 +809,6 @@ if ~grid_ready
         cx_final = orig_w / 2;
         cy_final = orig_h / 2;
     end
-    
-    % --- NEW: Clamping constraints removed entirely! Grid goes where you click. ---
-    
     mea_grid_pos = [cx_final - mea_grid_w/2, cy_final - mea_grid_h/2, ...
                     cx_final + mea_grid_w/2, cy_final + mea_grid_h/2];
     save(mea_grid_mat,'mea_grid_pos');
@@ -902,62 +893,158 @@ set(hF8,'Name','Fig 8 - VSD+CSD [saved]');
 fprintf('  Fig 8 video saved.\n');
 
 %% =========================================================================
-%% FIGURE 9 — DUAL ROI OVERLAY VIDEO
+%% FIGURE 9 — DUAL ROI OVERLAY VIDEO  [PRESENTATION-READY]
 %% =========================================================================
-fprintf('\nBuilding Fig 9 - Dual ROI Overlay Video...\n');
-vid9_name = sprintf('Fig9_DualROI_%s.mp4', merged_label);
-vid9 = VideoWriter(vid9_name,'MPEG-4'); vid9.FrameRate = 15; vid9.Quality = 95; open(vid9);
-hF9  = figure('Name','Fig 9 - Dual ROI Overlay (rendering...)','Color','k',...
-    'Position',[150 150 orig_w+200 orig_h+100],'Visible','on');
-ax9  = axes('Parent',hF9,'Position',[0.02 0.08 0.82 0.88],'Color','k','XColor','none','YColor','none');
+% Layout: 1920×1080 HD canvas, dark title strip, dark timestamp bar,
+% symmetric colorbars flanking the image, green border flash at trigger.
+% Dipole side panel removed. 24 fps for smooth projector playback.
+% =========================================================================
+fprintf('\nBuilding Fig 9 - Dual ROI Overlay Video (Presentation-Ready)...\n');
+
+% ── Output canvas dimensions ──────────────────────────────────────────────
+OUT_W         = 1920;  OUT_H = 1080;
+MARGIN_TOP    = 80;    % title strip height (px)
+MARGIN_BOTTOM = 60;    % timestamp bar height (px)
+MARGIN_SIDE   = 180;   % side margin for colorbars (px, each side)
+
+avail_w = OUT_W - 2*MARGIN_SIDE;
+avail_h = OUT_H - MARGIN_TOP - MARGIN_BOTTOM;
+
+scale9  = min(avail_w / orig_w, avail_h / orig_h);
+disp_w9 = round(orig_w * scale9);
+disp_h9 = round(orig_h * scale9);
+
+img_x9 = MARGIN_SIDE + floor((avail_w - disp_w9)/2);
+img_y9 = MARGIN_TOP  + floor((avail_h - disp_h9)/2);
+
+% Electrode pixel positions mapped to HD canvas
+elec_px9 = zeros(64,2);
+for ei = 1:64
+    nx = (col_map_flipped(ei)-1)/(8-1);
+    ny = (row_map(ei)-1)/(9-1);
+    ox = mea_tl_x + nx * mea_grid_w;
+    oy = mea_tl_y + ny * mea_grid_h;
+    elec_px9(ei,1) = img_x9 + ox * scale9;
+    elec_px9(ei,2) = img_y9 + oy * scale9;
+end
+
+cmap_csd9 = jet(256);
+csd_clim9 = csd_clim;
+dot_r9    = max(120, round(disp_h9 * disp_w9 / 18000));
+
+% ── Shared colorbar geometry (reused by Fig 11) ───────────────────────────
+CB_W  = 22;
+CB_H  = round(disp_h9 * 0.65);
+CB_Y  = img_y9 + floor((disp_h9 - CB_H)/2);
+CB_GAP = 28;
+
+fig9_ann_w   = OUT_W / 1.5;
+fig9_ann_h   = OUT_H / 1.5;
+title_strip_h = MARGIN_TOP    / (OUT_H/1.5) * fig9_ann_h;
+ts_strip_h    = MARGIN_BOTTOM / (OUT_H/1.5) * fig9_ann_h;
+
 [cb_lo1,cb_hi1] = colorbar_range(alphas_used(1), recalc_colorbar_from_zero);
 [cb_lo2,cb_hi2] = colorbar_range(alphas_used(2), recalc_colorbar_from_zero);
-add_colorbar_full(hF9, cmaps_used{1}, cb_lo1, cb_hi1, 'ROI_1 \DeltaF/F_0', [0.85 0.35 0.015 0.55]);
-add_colorbar_full(hF9, cmaps_used{2}, cb_lo2, cb_hi2, 'ROI_2 \DeltaF/F_0', [0.90 0.35 0.015 0.55]);
-fnt_sz9 = max(14, round(orig_h*0.06));
+n_cb  = size(cmaps_used{1},1);
+n_cb2 = size(cmaps_used{2},1);
+tick_p  = round(linspace(1,n_cb,5));
+tick_v1 = linspace(cb_lo1,cb_hi1,5);
+tick_v2 = linspace(cb_lo2,cb_hi2,5);
+
+% ── Video writer ──────────────────────────────────────────────────────────
+vid9_name = sprintf('Fig9_DualROI_%s_HD.mp4', merged_label);
+vid9 = VideoWriter(vid9_name,'MPEG-4');
+vid9.FrameRate = 24;  vid9.Quality = 98;  open(vid9);
+
+hF9 = figure('Name','Fig 9 - Dual ROI Overlay (rendering...)', ...
+    'Color','k','Position',[50 50 OUT_W/1.5 OUT_H/1.5],'Visible','on');
+
+% VSD image axes
+ax9_main = axes('Parent',hF9,'Units','pixels', ...
+    'Position',[img_x9, img_y9, disp_w9, disp_h9], ...
+    'XColor','none','YColor','none','Color','k');
+
+% ROI_1 colorbar — left of image
+ax9_cb1 = axes('Parent',hF9,'Units','pixels', ...
+    'Position',[img_x9 - CB_GAP - CB_W, CB_Y, CB_W, CB_H]);
+image(ax9_cb1, flipud(permute(reshape(cmaps_used{1},[n_cb,1,3]),[1 2 3])));
+set(ax9_cb1,'XTick',[],'YTick',tick_p, ...
+    'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v1),'UniformOutput',false), ...
+    'TickDir','out','FontSize',13,'YColor','w','TickLength',[0.04 0.04],'LineWidth',1.2);
+ylabel(ax9_cb1,'ROI 1  \DeltaF/F_0','Color','w','FontSize',15,'FontWeight','bold', ...
+    'Units','normalized','Position',[-1.6,0.5,0]);
+
+% ROI_2 colorbar — right of image
+ax9_cb2 = axes('Parent',hF9,'Units','pixels', ...
+    'Position',[img_x9 + disp_w9 + CB_GAP, CB_Y, CB_W, CB_H]);
+image(ax9_cb2, flipud(permute(reshape(cmaps_used{2},[n_cb2,1,3]),[1 2 3])));
+set(ax9_cb2,'XTick',[],'YTick',tick_p, ...
+    'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v2),'UniformOutput',false), ...
+    'TickDir','out','FontSize',13,'YColor','w','TickLength',[0.04 0.04], ...
+    'LineWidth',1.2,'YAxisLocation','right');
+ylabel(ax9_cb2,'ROI 2  \DeltaF/F_0','Color','w','FontSize',15,'FontWeight','bold');
+
+% Annotation overlay axes (title strip, timestamp bar, trigger border)
+ax9_ann = axes('Parent',hF9,'Units','pixels', ...
+    'Position',[0,0,OUT_W/1.5,OUT_H/1.5], ...
+    'Color','none','XColor','none','YColor','none', ...
+    'XLim',[0 OUT_W/1.5],'YLim',[0 OUT_H/1.5]);
+ax9_ann.HitTest = 'off';
+
+rectangle(ax9_ann,'Position',[0, fig9_ann_h-title_strip_h, fig9_ann_w, title_strip_h], ...
+    'FaceColor',[0.08 0.08 0.08],'EdgeColor','none');
+text(ax9_ann, fig9_ann_w/2, fig9_ann_h-title_strip_h/2, ...
+    sprintf('Dual ROI Overlay  ·  %s', strrep(merged_label,'_','\_')), ...
+    'Color','w','FontSize',17,'FontWeight','bold', ...
+    'HorizontalAlignment','center','VerticalAlignment','middle');
+
+rectangle(ax9_ann,'Position',[0, 0, fig9_ann_w, ts_strip_h], ...
+    'FaceColor',[0.08 0.08 0.08],'EdgeColor','none');
+hTS9_txt = text(ax9_ann, fig9_ann_w/2, ts_strip_h/2, 't = +0.0 ms', ...
+    'Color','w','FontSize',16,'FontWeight','bold', ...
+    'HorizontalAlignment','center','VerticalAlignment','middle');
+
+hTrig9 = rectangle(ax9_ann, ...
+    'Position',[img_x9/(OUT_W/1.5)*fig9_ann_w, img_y9/(OUT_H/1.5)*fig9_ann_h, ...
+                disp_w9/(OUT_W/1.5)*fig9_ann_w, disp_h9/(OUT_H/1.5)*fig9_ann_h], ...
+    'EdgeColor',[0.2 1.0 0.3],'LineWidth',5,'FaceColor','none','Visible','off');
+
+drawnow;
+
+% ── Render loop ────────────────────────────────────────────────────────────
 for fi = 1:n_vsd_frames
     frame_out = double(bg_uint8);
     for k = 1:num_files
         img         = norm_stacks{k}(:,:,fi);
-        cmap_k      = cmaps_used{k};
-        alpha_k     = alphas_used(k);
-        trans_k     = heatmap_transparencies(min(k,end));
-        feat_k      = freehand_masks{k};
-        color_rgb_k = double(make_color_rgb(img, cmap_k, alpha_k, orig_h, orig_w, recalc_colorbar_from_zero));
-        alpha_act   = imgaussfilt(double(img >= alpha_k), 1.5);
-        opacity     = alpha_act .* feat_k * trans_k;
+        color_rgb_k = double(make_color_rgb(img, cmaps_used{k}, alphas_used(k), orig_h, orig_w, recalc_colorbar_from_zero));
+        alpha_act   = imgaussfilt(double(img >= alphas_used(k)), 1.5);
+        opacity     = alpha_act .* freehand_masks{k} * heatmap_transparencies(min(k,end));
         op3         = repmat(opacity,[1 1 3]);
         frame_out   = frame_out.*(1-op3) + color_rgb_k.*op3;
     end
-    frame_out = uint8(frame_out);
-    t_ms_now  = vsd_time_ms_f8(fi);
-    is_trig   = (plot_frames(fi) == smart_trigger_idx);
-    if has_insertText
-        frame_out = insertText(frame_out,[5,orig_h-fnt_sz9-8],sprintf('%+.1f ms',t_ms_now),...
-            'FontSize',fnt_sz9,'TextColor','white','BoxColor','black','BoxOpacity',0.75);
-        if is_trig
-            frame_out = insertText(frame_out,[5,5],'TRIGGER','FontSize',fnt_sz9,...
-                'TextColor','white','BoxColor','green','BoxOpacity',0.8);
-        end
-    else
-        frame_out = burn_text(frame_out, sprintf('%+.1f ms',t_ms_now), orig_h, orig_w, is_trig);
-    end
-    imshow(frame_out,'Parent',ax9); hold(ax9,'on');
+    frame_disp9 = imresize(uint8(frame_out), [disp_h9, disp_w9], 'bilinear');
+    t_ms_now    = vsd_time_ms_f8(fi);
+    is_trig     = (plot_frames(fi) == smart_trigger_idx);
+
+    imshow(frame_disp9,'Parent',ax9_main); hold(ax9_main,'on');
     csd_vals = csd_resampled(:,fi); valid = ~isnan(csd_vals);
     if any(valid)
-        idx_c = max(1,min(256, round(((csd_vals(valid)+csd_clim)/(2*csd_clim))*255)+1));
-        scatter(ax9, elec_px(valid,1), elec_px(valid,2), dot_size, cmap_csd(idx_c,:),...
-            'filled','MarkerEdgeColor','w','LineWidth',0.6);
+        idx_c = max(1,min(256, round(((csd_vals(valid)+csd_clim9)/(2*csd_clim9))*255)+1));
+        scatter(ax9_main, elec_px9(valid,1)-img_x9, elec_px9(valid,2)-img_y9, ...
+            dot_r9, cmap_csd9(idx_c,:),'filled','MarkerEdgeColor',[0.1 0.1 0.1],'LineWidth',0.8);
     end
-    hold(ax9,'off');
-    title(ax9, sprintf('Dual ROI Overlay  |  t = %+.1f ms  |  %s', t_ms_now, merged_label),...
-        'Color','w','FontSize',11,'FontWeight','bold');
+    hold(ax9_main,'off');
+
+    set(hTS9_txt,'String', sprintf('t  =  %+.1f ms', t_ms_now));
+    set(hTrig9,'Visible', ternary_str(is_trig,'on','off'));
     drawnow;
     writeVideo(vid9, getframe(hF9));
-    if mod(fi,10)==0, fprintf('  Fig9 frame %d / %d\n',fi,n_vsd_frames); end
+    if mod(fi,15)==0
+        fprintf('  Fig9 frame %d / %d  (t = %+.1f ms)\n', fi, n_vsd_frames, t_ms_now);
+    end
 end
 close(vid9);
-set(hF9,'Name',sprintf('Fig 9 - Dual ROI Overlay [saved: %s]',vid9_name));
+set(hF9,'Name',sprintf('Fig 9 - Dual ROI Overlay [saved: %s]', vid9_name));
 fprintf('  Fig 9 video saved: %s\n', vid9_name);
 
 %% =========================================================================
@@ -998,106 +1085,125 @@ if num_files >= 2
 end
 
 %% =========================================================================
-%% FIGURE 11 — DUAL ROI OVERLAY VIDEO (BASELINE-CORRECTED OPTICAL DIPOLE)
+%% FIGURE 11 — DUAL ROI + CSD OVERLAY VIDEO  [PRESENTATION-READY]
 %% =========================================================================
+% Optical dipole side panel removed.
+% Inherits HD canvas geometry from Fig 9 block above.
+% =========================================================================
 if num_files >= 2
-    fprintf('\nBuilding Fig 11 - Dual ROI Overlay Video (Baseline-Corrected Optical Dipole)...\n');
+    fprintf('\nBuilding Fig 11 - Dual ROI + CSD (Presentation-Ready)...\n');
+
+    % ── Compute baseline-corrected dipole (saved to .mat; not displayed) ──
     raw_diff_full    = comp_traces{1} - comp_traces{2};
     smooth_diff_full = smoothdata(raw_diff_full, 'movmean', 5);
-    bl_mask  = vsd_time_ms >= optical_baseline_pre_ms & ...
-               vsd_time_ms <= optical_baseline_post_ms;
+    bl_mask = vsd_time_ms >= optical_baseline_pre_ms & ...
+              vsd_time_ms <= optical_baseline_post_ms;
     if sum(bl_mask) < 2
-        warning('Fig 11: baseline window contains fewer than 2 samples — using first frame only.');
+        warning('Fig 11: baseline window <2 samples — using first frame only.');
         bl_mask(1) = true;
     end
     dipole_offset        = mean(smooth_diff_full(bl_mask));
     smooth_diff_centered = smooth_diff_full - dipole_offset;
     fprintf('  Optical dipole baseline offset removed: %.4e (window %.0f–%.0f ms)\n', ...
             dipole_offset, optical_baseline_pre_ms, optical_baseline_post_ms);
-    [~, pf_in_v] = ismember(plot_frames, plot_frames_v);
-    missing = pf_in_v == 0;
-    if any(missing)
-        for mi = find(missing)
-            [~, nn] = min(abs(plot_frames_v - plot_frames(mi)));
-            pf_in_v(mi) = nn;
-        end
-    end
-    dipole_filmstrip = smooth_diff_centered(pf_in_v);
-    dip_max  = max(abs(dipole_filmstrip));
-    if dip_max == 0, dip_max = 1; end
-    vid11_name = sprintf('Fig11_DualROI_BaselineCorrected_%s.mp4', merged_label);
+
+    % ── Video writer ──────────────────────────────────────────────────────
+    vid11_name = sprintf('Fig11_DualROI_BaselineCorrected_%s_HD.mp4', merged_label);
     vid11 = VideoWriter(vid11_name,'MPEG-4');
-    vid11.FrameRate = 15; vid11.Quality = 95; open(vid11);
-    hF11  = figure('Name','Fig 11 - Dual ROI + Baseline-Corrected Dipole (rendering...)',...
-        'Color','k','Position',[200 200 orig_w+280 orig_h+120],'Visible','on');
-    ax11  = axes('Parent',hF11,'Position',[0.02 0.08 0.72 0.88],...
-        'Color','k','XColor','none','YColor','none');
-    add_colorbar_full(hF11, cmaps_used{1}, cb_lo1, cb_hi1, 'ROI\_1 \DeltaF/F_0', [0.76 0.35 0.015 0.55]);
-    add_colorbar_full(hF11, cmaps_used{2}, cb_lo2, cb_hi2, 'ROI\_2 \DeltaF/F_0', [0.81 0.35 0.015 0.55]);
-    ax11t = axes('Parent',hF11,'Position',[0.87 0.12 0.11 0.75],...
-        'Color',[0.08 0.08 0.08],'XColor','w','YColor','w','FontSize',8);
-    hold(ax11t,'on');
-    plot(ax11t, dipole_filmstrip, 1:n_vsd_frames, '-',...
-        'Color',[0.3 0.6 0.9 0.35],'LineWidth',0.8);
-    hDipDot = plot(ax11t, dipole_filmstrip(1), 1, 'o',...
-        'Color',[0.3 0.6 0.9],'MarkerFaceColor',[0.3 0.6 0.9],'MarkerSize',7);
-    xline(ax11t, 0, '--','Color',[0.9 0.85 0.2 0.7],'LineWidth',1.0,...
-        'Label','0','LabelHorizontalAlignment','right','FontSize',7);
-    xlim(ax11t, [-dip_max*1.15, dip_max*1.15]);
-    ylim(ax11t, [0.5, n_vsd_frames+0.5]);
-    set(ax11t,'YDir','reverse','YTick',[]);
-    xlabel(ax11t,'\Delta(\DeltaF/F_0)','Color','w','FontSize',7);
-    title(ax11t, sprintf('Optical\nDipole\n(zero-centred)'),...
-        'Color',[0.6 0.85 1.0],'FontSize',7,'FontWeight','bold');
-    hold(ax11t,'off');
-    fnt_sz11 = max(14, round(orig_h*0.06));
+    vid11.FrameRate = 24;  vid11.Quality = 98;  open(vid11);
+
+    hF11 = figure('Name','Fig 11 - Dual ROI + CSD (rendering...)', ...
+        'Color','k','Position',[80 80 OUT_W/1.5 OUT_H/1.5],'Visible','on');
+
+    % VSD image axes — identical geometry to Fig 9
+    ax11_main = axes('Parent',hF11,'Units','pixels', ...
+        'Position',[img_x9, img_y9, disp_w9, disp_h9], ...
+        'XColor','none','YColor','none','Color','k');
+
+    % ROI_1 colorbar — left
+    ax11_cb1 = axes('Parent',hF11,'Units','pixels', ...
+        'Position',[img_x9-CB_GAP-CB_W, CB_Y, CB_W, CB_H]);
+    image(ax11_cb1, flipud(permute(reshape(cmaps_used{1},[n_cb,1,3]),[1 2 3])));
+    set(ax11_cb1,'XTick',[],'YTick',tick_p, ...
+        'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v1),'UniformOutput',false), ...
+        'TickDir','out','FontSize',13,'YColor','w','TickLength',[0.04 0.04],'LineWidth',1.2);
+    ylabel(ax11_cb1,'ROI 1  \DeltaF/F_0','Color','w','FontSize',15,'FontWeight','bold', ...
+        'Units','normalized','Position',[-1.6,0.5,0]);
+
+    % ROI_2 colorbar — right
+    ax11_cb2 = axes('Parent',hF11,'Units','pixels', ...
+        'Position',[img_x9+disp_w9+CB_GAP, CB_Y, CB_W, CB_H]);
+    image(ax11_cb2, flipud(permute(reshape(cmaps_used{2},[n_cb2,1,3]),[1 2 3])));
+    set(ax11_cb2,'XTick',[],'YTick',tick_p, ...
+        'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v2),'UniformOutput',false), ...
+        'TickDir','out','FontSize',13,'YColor','w','TickLength',[0.04 0.04], ...
+        'LineWidth',1.2,'YAxisLocation','right');
+    ylabel(ax11_cb2,'ROI 2  \DeltaF/F_0','Color','w','FontSize',15,'FontWeight','bold');
+
+    % Annotation axes
+    ax11_ann = axes('Parent',hF11,'Units','pixels', ...
+        'Position',[0,0,OUT_W/1.5,OUT_H/1.5], ...
+        'Color','none','XColor','none','YColor','none', ...
+        'XLim',[0 OUT_W/1.5],'YLim',[0 OUT_H/1.5]);
+    ax11_ann.HitTest = 'off';
+
+    rectangle(ax11_ann,'Position',[0, fig9_ann_h-title_strip_h, fig9_ann_w, title_strip_h], ...
+        'FaceColor',[0.08 0.08 0.08],'EdgeColor','none');
+    text(ax11_ann, fig9_ann_w/2, fig9_ann_h-title_strip_h/2, ...
+        sprintf('Dual ROI + CSD  ·  Baseline-Corrected Dipole  ·  %s', strrep(merged_label,'_','\_')), ...
+        'Color','w','FontSize',16,'FontWeight','bold', ...
+        'HorizontalAlignment','center','VerticalAlignment','middle');
+
+    rectangle(ax11_ann,'Position',[0, 0, fig9_ann_w, ts_strip_h], ...
+        'FaceColor',[0.08 0.08 0.08],'EdgeColor','none');
+    hTS11_txt = text(ax11_ann, fig9_ann_w/2, ts_strip_h/2, 't = +0.0 ms', ...
+        'Color','w','FontSize',16,'FontWeight','bold', ...
+        'HorizontalAlignment','center','VerticalAlignment','middle');
+
+    hTrig11 = rectangle(ax11_ann, ...
+        'Position',[img_x9/(OUT_W/1.5)*fig9_ann_w, img_y9/(OUT_H/1.5)*fig9_ann_h, ...
+                    disp_w9/(OUT_W/1.5)*fig9_ann_w, disp_h9/(OUT_H/1.5)*fig9_ann_h], ...
+        'EdgeColor',[0.2 1.0 0.3],'LineWidth',5,'FaceColor','none','Visible','off');
+
+    drawnow;
+
+    % ── Render loop ──────────────────────────────────────────────────────
     for fi = 1:n_vsd_frames
         frame_out = double(bg_uint8);
         for k = 1:num_files
             img         = norm_stacks{k}(:,:,fi);
-            cmap_k      = cmaps_used{k};
-            alpha_k     = alphas_used(k);
-            trans_k     = heatmap_transparencies(min(k,end));
-            feat_k      = freehand_masks{k};
-            color_rgb_k = double(make_color_rgb(img, cmap_k, alpha_k, orig_h, orig_w, recalc_colorbar_from_zero));
-            alpha_act   = imgaussfilt(double(img >= alpha_k), 1.5);
-            opacity     = alpha_act .* feat_k * trans_k;
+            color_rgb_k = double(make_color_rgb(img, cmaps_used{k}, alphas_used(k), orig_h, orig_w, recalc_colorbar_from_zero));
+            alpha_act   = imgaussfilt(double(img >= alphas_used(k)), 1.5);
+            opacity     = alpha_act .* freehand_masks{k} * heatmap_transparencies(min(k,end));
             op3         = repmat(opacity,[1 1 3]);
             frame_out   = frame_out.*(1-op3) + color_rgb_k.*op3;
         end
-        frame_out = uint8(frame_out);
-        t_ms_now  = vsd_time_ms_f8(fi);
-        is_trig   = (plot_frames(fi) == smart_trigger_idx);
-        if has_insertText
-            frame_out = insertText(frame_out,[5,orig_h-fnt_sz11-8],sprintf('%+.1f ms',t_ms_now),...
-                'FontSize',fnt_sz11,'TextColor','white','BoxColor','black','BoxOpacity',0.75);
-            if is_trig
-                frame_out = insertText(frame_out,[5,5],'TRIGGER','FontSize',fnt_sz11,...
-                    'TextColor','white','BoxColor','green','BoxOpacity',0.8);
-            end
-        else
-            frame_out = burn_text(frame_out, sprintf('%+.1f ms',t_ms_now), orig_h, orig_w, is_trig);
-        end
-        imshow(frame_out,'Parent',ax11); hold(ax11,'on');
+        frame_disp = imresize(uint8(frame_out), [disp_h9, disp_w9], 'bilinear');
+        t_ms_now   = vsd_time_ms_f8(fi);
+        is_trig    = (plot_frames(fi) == smart_trigger_idx);
+
+        imshow(frame_disp,'Parent',ax11_main); hold(ax11_main,'on');
         csd_vals = csd_resampled(:,fi); valid = ~isnan(csd_vals);
         if any(valid)
             idx_c = max(1,min(256, round(((csd_vals(valid)+csd_clim)/(2*csd_clim))*255)+1));
-            scatter(ax11, elec_px(valid,1), elec_px(valid,2), dot_size, cmap_csd(idx_c,:),...
-                'filled','MarkerEdgeColor','w','LineWidth',0.6);
+            scatter(ax11_main, elec_px9(valid,1)-img_x9, elec_px9(valid,2)-img_y9, ...
+                dot_r9, cmap_csd9(idx_c,:),'filled','MarkerEdgeColor',[0.1 0.1 0.1],'LineWidth',0.8);
         end
-        hold(ax11,'off');
-        title(ax11, sprintf('Dual ROI + CSD  |  t = %+.1f ms  |  %s  |  Dipole DC-removed', ...
-            t_ms_now, merged_label),'Color','w','FontSize',10,'FontWeight','bold');
-        set(hDipDot,'XData', dipole_filmstrip(fi), 'YData', fi);
+        hold(ax11_main,'off');
+
+        set(hTS11_txt,'String', sprintf('t  =  %+.1f ms', t_ms_now));
+        set(hTrig11,'Visible', ternary_str(is_trig,'on','off'));
         drawnow;
         writeVideo(vid11, getframe(hF11));
-        if mod(fi,10)==0
-            fprintf('  Fig11 frame %d / %d  |  dipole = %.3e\n', fi, n_vsd_frames, dipole_filmstrip(fi));
+        if mod(fi,15)==0
+            fprintf('  Fig11 frame %d / %d  (t = %+.1f ms)\n', fi, n_vsd_frames, t_ms_now);
         end
     end
     close(vid11);
-    set(hF11,'Name',sprintf('Fig 11 - Dual ROI + Baseline-Corrected Dipole [saved: %s]',vid11_name));
+    set(hF11,'Name',sprintf('Fig 11 - Dual ROI + CSD [saved: %s]', vid11_name));
     fprintf('  Fig 11 video saved: %s\n', vid11_name);
+
+    % Save baseline-corrected dipole trace
     dipole_time_ms       = vsd_time_ms(:);
     dipole_raw           = raw_diff_full(:);
     dipole_smooth        = smooth_diff_full(:);
@@ -1111,7 +1217,7 @@ end
 %% FIGURE 12 — CSD TIME-LAPSE MONTAGE
 %% =========================================================================
 fprintf('\nBuilding Fig 12 - CSD Time-Lapse Montage...\n');
-montage_times = [0, 8, 12, 14, 18, 20, 22, 24]; % Selected times in ms
+montage_times = [0, 8, 12, 14, 18, 20, 22, 24];
 num_montage = length(montage_times);
 fig12 = figure('Name','Fig 12 - CSD Montage','Color','w','Position',[100 100 1600 300]);
 for mi = 1:num_montage
@@ -1183,9 +1289,9 @@ fprintf('Fig  5B  : VSD Differential Time Course (ROI_1 - ROI_2)\n');
 fprintf('Fig  6   : MEA Reconstructed Dashboard\n');
 fprintf('Fig  7   : MEA Interactive CSD GUI\n');
 fprintf('Fig  8   : VSD+CSD Overlay Video\n');
-fprintf('Fig  9   : Dual ROI Overlay Video — %s\n', vid9_name);
+fprintf('Fig  9   : Dual ROI Overlay Video [HD] — %s\n', vid9_name);
 fprintf('Fig  10  : VSD Optical Dipole vs MEA Overlay\n');
-fprintf('Fig  11  : Dual ROI + CSD Overlay (Baseline-Corrected Optical Dipole) — %s\n', vid11_name);
+fprintf('Fig  11  : Dual ROI + CSD Overlay [HD, dipole panel removed] — %s\n', vid11_name);
 fprintf('Fig  12  : CSD Time-Lapse Montage\n');
 fprintf('Fig  13  : Dual ROI + CSD Time-Lapse Montage\n');
 fprintf('Toggle   : recalc_colorbar_from_zero = %d\n', recalc_colorbar_from_zero);
@@ -1274,13 +1380,8 @@ function [ex, ey, bx, by] = grid_from_centre(cx, cy, gw, gh, enx, eny)
     by   = [tl_y, tl_y,    tl_y+gh,  tl_y+gh, tl_y];
 end
 function mea_grid_click(src, ~)
-    % Find the figure regardless of where the user clicked
-    if strcmp(src.Type, 'figure')
-        fig = src;
-    else
-        fig = ancestor(src,'figure');
-    end
-    
+    if strcmp(src.Type, 'figure'), fig = src;
+    else, fig = ancestor(src,'figure'); end
     ax     = getappdata(fig,'ax_grid');
     cp     = get(ax,'CurrentPoint');
     cx     = cp(1,1);  cy = cp(1,2);
@@ -1290,7 +1391,6 @@ function mea_grid_click(src, ~)
     eny    = getappdata(fig,'elec_norm_y');
     h_dots = getappdata(fig,'h_dots');
     h_bord = getappdata(fig,'h_border');
-    
     [ex,ey,bx,by] = grid_from_centre(cx,cy,gw,gh,enx,eny);
     set(h_dots,'XData',ex,'YData',ey);
     set(h_bord,'XData',bx,'YData',by);

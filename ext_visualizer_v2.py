@@ -293,7 +293,7 @@ class EfficientVideoExporter:
 # Usage:
 if __name__ == "__main__":
     # Load your data
-    h5_path = "converted__500/led_E1B1.h5"
+    h5_path = "converted__500/led_E0B0.h5"
     #h5_path = "data/led_E1B13.h5"  
     with h5py.File(h5_path, 'r') as hf:
         data = hf['image_stack'][:]

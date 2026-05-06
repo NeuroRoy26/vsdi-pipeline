@@ -16,6 +16,7 @@
 %   - SMART TRIGGER: Calculates Onset via Tangent Projection
 %   - FLEXMEA72 OVERLAY: Visualizes electrode grid on spatial maps
 %   - ADVANCED HARVESTING: Gradient Borders, Watershed ROIs, Wavefront Maps
+%   - VSD_MEA-STYLE TRIGGER: Pre-rise-peak / Max-derivative / -3-frame logic
 %
 % MEMORY EFFICIENT: Only processes one movie at a time, stores traces only
 % 1. SMART CLEAR: Keeps files if they are already loaded
@@ -803,7 +804,201 @@ if do_concat && ~isempty(concat_traces) && isfield(concat_metadata, 'file_segmen
         
         hold off;
     end
-end
+
+    % ============================================================
+    % *** NEW: VSD_MEA-STYLE SMART TRIGGER DETECTION FIGURE ***
+    % Applies the identical pre-rise-peak / max-derivative / -3-frame
+    % logic from VSD_MEA.m Section E, per file segment.
+    % Plotted immediately after the Tangent method for direct comparison.
+    % ============================================================
+
+    if exist('Concatenated_Recording', 'var') && exist('Triggers', 'var')
+
+        fprintf('\n  ★ VSD_MEA-Style Smart Trigger Detection...\n');
+
+        % --- Parameters (mirror VSD_MEA.m Section E exactly) ---
+        shift_frames_s1  = 3;      % frames to step back from pre-rise peak (6ms @ 500Hz)
+        lookback_win_sec = 0.20;   % 200ms backward search window from peak
+        max_walk_sec     = 0.15;   % max 150ms for each backward walk step
+
+        % --- Per-segment storage ---
+        vsdmea_t_onset     = nan(1, num_segments);
+        vsdmea_t_peak      = nan(1, num_segments);
+        vsdmea_t_slope     = nan(1, num_segments);
+        vsdmea_amp_onset   = nan(1, num_segments);
+        vsdmea_amp_peak    = nan(1, num_segments);
+        vsdmea_amp_slope   = nan(1, num_segments);
+        vsdmea_onset_frame = nan(1, num_segments);   % global frame index
+
+        for k = 1:num_segments
+
+            i_start = concat_metadata.file_segments(k).start_frame;
+            i_end   = concat_metadata.file_segments(k).end_frame;
+            fs_k    = concat_metadata.file_segments(k).fs;
+
+            % STEP 1: Peak within this segment
+            seg_data = concat_traces(i_start:i_end);
+            [pk_amp, rel_pk] = max(seg_data);
+            g_pk = i_start + rel_pk - 1;              % global index
+
+            % STEP 2: Max derivative in 200ms lookback window
+            % Uses concat_deriv computed in the Derivative Analysis block above
+            win_start   = max(i_start, g_pk - round(lookback_win_sec * fs_k));
+            win_indices = win_start : g_pk;
+            deriv_win   = concat_deriv(win_indices);
+            [~, rel_sl] = max(deriv_win);
+            g_sl        = win_indices(rel_sl);         % global index of max slope
+
+            % STEP 3: Walk backward from max-slope point to find trough
+            % Reflects pre-excitatory baseline or early feedforward inhibition
+            max_walk_frames = round(max_walk_sec * fs_k);
+            g_trough = g_sl;
+            for ii = g_sl : -1 : max(i_start, g_sl - max_walk_frames) + 1
+                if concat_traces(ii-1) >= concat_traces(ii)
+                    g_trough = ii; break;
+                end
+            end
+
+            % STEP 4: Walk backward further to find pre-trough local minimum
+            % Anchors to the last stable pre-event baseline point
+            g_prepeak = g_trough;
+            for ii = g_trough : -1 : max(i_start, g_trough - max_walk_frames) + 1
+                if concat_traces(ii-1) <= concat_traces(ii)
+                    g_prepeak = ii; break;
+                end
+            end
+
+            % STEP 5: Shift back by shift_frames
+            % 6ms margin accounts for camera integration time and dye rise-time
+            g_onset = max(i_start, g_prepeak - shift_frames_s1);
+
+            % -- store --
+            vsdmea_t_onset(k)     = time_concat(g_onset);
+            vsdmea_t_peak(k)      = time_concat(g_pk);
+            vsdmea_t_slope(k)     = time_concat(g_sl);
+            vsdmea_amp_onset(k)   = concat_traces(g_onset);
+            vsdmea_amp_peak(k)    = pk_amp;
+            vsdmea_amp_slope(k)   = concat_traces(g_sl);
+            vsdmea_onset_frame(k) = g_onset;
+
+            fprintf('    [File %d]  Peak: %.3fs  |  MaxSlope: %.3fs  |  Onset (-%d fr): %.3fs  (global frame %d)\n', ...
+                    k, vsdmea_t_peak(k), vsdmea_t_slope(k), shift_frames_s1, ...
+                    vsdmea_t_onset(k), g_onset);
+        end
+
+        % --- Append VSD_MEA-style results to existing Triggers struct ---
+        Triggers.vsdmea_t_onset_sec        = vsdmea_t_onset;
+        Triggers.vsdmea_t_peak_sec         = vsdmea_t_peak;
+        Triggers.vsdmea_t_slope_sec        = vsdmea_t_slope;
+        Triggers.vsdmea_onset_frame_global = vsdmea_onset_frame;
+        Triggers.vsdmea_shift_frames       = shift_frames_s1;
+        Concatenated_Recording.Triggers    = Triggers;   % keep struct in sync
+        fprintf('  ✓ VSD_MEA-style onsets appended to Triggers struct\n');
+
+        % ---- FIGURE: comparison of both methods -------------------------
+        figure('Name', 'VSD_MEA-Style Smart Trigger Detection', ...
+               'Color', 'w', 'Position', [150 100 1300 650]);
+
+        seg_colors = lines(num_segments);
+
+        % --- Top panel: full signal + both sets of triggers --------------
+        ax_top = subplot(2, 1, 1);
+
+        yyaxis left;
+        plot(time_concat, concat_traces, 'k-', 'LineWidth', 1.0, ...
+             'DisplayName', 'Concat Signal (Z-Score)');
+        hold on;
+        ylabel('\DeltaF/F  (Z-Score)', 'FontSize', 11, 'FontWeight', 'bold');
+        set(ax_top, 'YColor', 'k');
+
+        for k = 1:num_segments
+            col_k = seg_colors(k,:);
+
+            % Peak (star)
+            plot(vsdmea_t_peak(k), vsdmea_amp_peak(k), '*', ...
+                 'Color', col_k, 'MarkerSize', 11, 'LineWidth', 1.8, ...
+                 'HandleVisibility', 'off');
+
+            % Max-slope point (circle)
+            plot(vsdmea_t_slope(k), vsdmea_amp_slope(k), 'o', ...
+                 'Color', col_k, 'MarkerSize', 8, 'LineWidth', 1.8, ...
+                 'HandleVisibility', 'off');
+
+            % VSD_MEA onset — solid vertical line + filled square
+            xline(vsdmea_t_onset(k), '-', 'Color', col_k, 'LineWidth', 2.0, ...
+                  'Label', sprintf('F%d VSD\\_MEA', k), ...
+                  'LabelVerticalAlignment', 'bottom', 'FontSize', 8, ...
+                  'HandleVisibility', 'off');
+            plot(vsdmea_t_onset(k), vsdmea_amp_onset(k), 's', ...
+                 'Color', col_k, 'MarkerSize', 10, 'LineWidth', 2, ...
+                 'MarkerFaceColor', 'w', 'HandleVisibility', 'off');
+
+            % Tangent-projection onset — dashed vertical, same colour
+            xline(Triggers.t_onset_sec(k), '--', 'Color', col_k, 'LineWidth', 1.2, ...
+                  'Label', sprintf('F%d Tangent', k), ...
+                  'LabelVerticalAlignment', 'top', 'FontSize', 8, ...
+                  'HandleVisibility', 'off');
+
+            % File boundary (grey dotted)
+            if k > 1
+                xline(time_concat(concat_metadata.file_segments(k).start_frame), ...
+                      ':', 'Color', [0.6 0.6 0.6], 'LineWidth', 0.8, ...
+                      'HandleVisibility', 'off');
+            end
+
+            % Legend proxy per file
+            plot(nan, nan, '-s', 'Color', col_k, 'MarkerFaceColor', 'w', ...
+                 'LineWidth', 1.5, ...
+                 'DisplayName', sprintf('File %d  (solid=VSD\\_MEA | dashed=Tangent)', k));
+        end
+
+        yyaxis right;
+        plot(time_concat, concat_deriv, '-', 'Color', [0 0.45 0.74 0.20], ...
+             'LineWidth', 0.8, 'DisplayName', 'Derivative (dF/dt)');
+        ylabel('Rate of Change', 'FontSize', 11, 'FontWeight', 'bold');
+        set(ax_top, 'YColor', [0 0.45 0.74]);
+
+        title('Trigger Comparison: VSD\_MEA — Peak (*) → Max Slope (○) → Onset (■ solid) vs Tangent (dashed)', ...
+              'FontSize', 11, 'FontWeight', 'bold');
+        legend('Location', 'best', 'FontSize', 8);
+        grid on; axis tight; hold off;
+
+        % --- Bottom panel: per-file onset difference (ms) ----------------
+        ax_bot = subplot(2, 1, 2);
+
+        onset_diff_ms = (vsdmea_t_onset - Triggers.t_onset_sec) * 1000;  % ms
+
+        b = bar(1:num_segments, onset_diff_ms, 'FaceColor', [0.3 0.6 0.9], ...
+                'EdgeColor', 'k', 'LineWidth', 1.0);
+        hold on;
+        yline(0, 'k-', 'LineWidth', 1.2);
+
+        for k = 1:num_segments
+            text(k, onset_diff_ms(k) + sign(onset_diff_ms(k)) * 0.3, ...
+                 sprintf('%.1f ms', onset_diff_ms(k)), ...
+                 'HorizontalAlignment', 'center', 'FontSize', 9, 'FontWeight', 'bold');
+        end
+
+        set(ax_bot, 'XTick', 1:num_segments, ...
+            'XTickLabel', arrayfun(@(k) sprintf('File %d', k), 1:num_segments, ...
+                                   'UniformOutput', false));
+        ylabel('\Delta Onset  (VSD\_MEA − Tangent)  [ms]', ...
+               'FontSize', 11, 'FontWeight', 'bold');
+        title('Per-File Onset Difference Between Detection Methods', ...
+              'FontSize', 11, 'FontWeight', 'bold');
+        grid on; axis tight; hold off;
+
+        sgtitle('VSD\_MEA-Style Smart Trigger Detection vs Tangent Projection', ...
+                'FontSize', 13, 'FontWeight', 'bold');
+
+        fprintf('  Fig rendered: VSD_MEA-Style Smart Trigger Detection\n');
+        fprintf('  Onset difference (VSD_MEA - Tangent) per file (ms): %s\n\n', ...
+                num2str(onset_diff_ms, '%.1f  '));
+
+    end   % end VSD_MEA trigger block
+
+end   % end if do_concat
+
 %% ======================== SAVE RESULTS ========================
 fprintf('========================================\n');
 fprintf('Saving results to: %s\n', CONFIG.output_file);
@@ -816,8 +1011,9 @@ if do_concat && exist('Concatenated_Recording', 'var')
         save(CONFIG.output_file, 'Triggers', '-append');
         fprintf('  ✓ Triggers also saved as top-level variable for Step 2\n');
         fprintf('    → Access via: load(''%s'', ''Triggers'')\n', CONFIG.output_file);
-        fprintf('    → Onset times: Triggers.t_onset_sec  (one per file)\n');
-        fprintf('    → Onset frames: Triggers.onset_frame (global, concat timeline)\n');
+        fprintf('    → Tangent onset times  : Triggers.t_onset_sec\n');
+        fprintf('    → VSD_MEA onset times  : Triggers.vsdmea_t_onset_sec\n');
+        fprintf('    → VSD_MEA onset frames : Triggers.vsdmea_onset_frame_global\n');
     end
 else
     save(CONFIG.output_file, 'All_Experiments', 'CONFIG');
