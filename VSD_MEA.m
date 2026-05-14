@@ -5,6 +5,24 @@ clc; close all;
 %% =========================================================================
 % SECTION A — CONFIGURATION
 % =========================================================================
+% --- Figure toggle (set to false to skip a figure entirely) ---
+run_fig1  = true;   % Global trigger detection
+run_fig2  = true;   % ROI_1 filmstrip
+run_fig3  = true;   % ROI_2 filmstrip
+run_fig4  = true;   % Dual ROI filmstrip
+run_fig4b = true;   % ROI_1 corrected (virtual ground) filmstrip
+run_fig5  = true;   % Interactive spatial viewer
+run_fig5b = true;   % Differential time course (optical dipole)
+run_fig6  = true;   % MEA reconstructed dashboard
+run_fig7  = true;   % Interactive CSD GUI
+run_fig8  = true;   % VSD+CSD overlay video
+run_fig9  = true;   % Dual ROI overlay video [HD]
+run_fig10 = true;   % Optical dipole vs MEA overlay
+run_fig11 = true;   % Dual ROI + CSD video [HD, baseline-corrected]
+run_fig12 = true;   % CSD time-lapse montage
+run_fig13 = true;   % Dual ROI + CSD montage
+run_fig14 = true;   % ROI boundaries (PNG)
+run_fig15 = true;   % Electrode D2 ERP (PNG)
 window_pre_ms  = 0;
 window_post_ms = 120;
 frame_step     = 1;
@@ -129,6 +147,7 @@ fprintf('  Peak: %.3fs | Slope: %.3fs | Onset (-3 frames): %.3fs (Frame %d)\n', 
 %% =========================================================================
 %% FIGURE 1 — VSD: GLOBAL SMART TRIGGER DETECTION
 %% =========================================================================
+if run_fig1
 figure('Name','Fig 1 - Global Trigger Detection','Color','w','Position',[100 550 1000 420]);
 yyaxis left;
 plot(time_sum, sum_trace,   'k-', 'LineWidth',1.5,'DisplayName','Global Signal (Sum)'); hold on;
@@ -146,6 +165,7 @@ legend('Location','best'); grid on; axis tight;
 ax_trig = gca;
 ax_trig.YAxis(1).Color = 'k';
 ax_trig.YAxis(2).Color = [0 0.45 0.74];
+end
 
 %% =========================================================================
 % SECTION F — VSD: SETUP PLOT FRAMES & CANVAS
@@ -256,7 +276,10 @@ for k = 1:num_files
     cmap       = cmaps_used{k};
     norm_stack = norm_stacks{k};
     feat_mask  = freehand_masks{k};
-    fprintf('Rendering Fig %d ROI_%d filmstrip...\n', k+1, k);
+    run_this_fig = (k == 1 && run_fig2) || (k == 2 && run_fig3);
+    if run_this_fig
+        fprintf('Rendering Fig %d ROI_%d filmstrip...\n', k+1, k);
+    end
     canvas_overlay = repmat(bg_uint8, [rows, cols, 1]);
     canvas_overlay = canvas_overlay(1:rows*orig_h, 1:cols*orig_w, :);
     for i = 1:num_subplots
@@ -277,21 +300,23 @@ for k = 1:num_files
         canvas_overlay(rr,cc,:) = frame_out;
     end
     canvas_overlays{k} = canvas_overlay;
-    fig_ov = figure('Name', sprintf('Fig %d - ROI_%d Freehand Overlay', k+1, k), ...
-        'Color','w','Position',[50+k*20, 50+k*20, 1600, 900]);
-    ax_ov  = axes(fig_ov,'Position',[0.02 0.10 0.88 0.85]);
-    imshow(canvas_overlay,'Parent',ax_ov);
-    [cb_lo, cb_hi] = colorbar_range(curr_alpha, recalc_colorbar_from_zero);
-    add_colorbar_full(fig_ov, cmap, cb_lo, cb_hi, sprintf('ROI\\_\\%d \\DeltaF/F_0',k), []);
-    title(ax_ov, sprintf('ROI_%d — Freehand ROI (feather=%dpx) | colorbar from %s', ...
-        k, roi_feather_px, ternary_str(recalc_colorbar_from_zero,'0','alpha')), ...
-        'FontSize',11,'FontWeight','bold');
+    if run_this_fig
+        fig_ov = figure('Name', sprintf('Fig %d - ROI_%d Freehand Overlay', k+1, k), ...
+            'Color','w','Position',[50+k*20, 50+k*20, 1600, 900]);
+        ax_ov  = axes(fig_ov,'Position',[0.02 0.10 0.88 0.85]);
+        imshow(canvas_overlay,'Parent',ax_ov);
+        [cb_lo, cb_hi] = colorbar_range(curr_alpha, recalc_colorbar_from_zero);
+        add_colorbar_full(fig_ov, cmap, cb_lo, cb_hi, sprintf('ROI\\_\\%d \\DeltaF/F_0',k), []);
+        title(ax_ov, sprintf('ROI_%d — Freehand ROI (feather=%dpx) | colorbar from %s', ...
+            k, roi_feather_px, ternary_str(recalc_colorbar_from_zero,'0','alpha')), ...
+            'FontSize',11,'FontWeight','bold');
+    end
 end
 
 %% =========================================================================
 %% FIGURE 4 — VSD: DUAL ROI OVERLAY FILMSTRIP
 %% =========================================================================
-if num_files >= 2
+if num_files >= 2 && run_fig4
     fprintf('Building Fig 4 — Dual ROI filmstrip (%s)...\n', merged_label);
     cmap_merged  = turbo(256);
     canvas_dual  = repmat(bg_uint8, [rows, cols, 1]);
@@ -345,7 +370,7 @@ end
 %% =========================================================================
 %% FIGURE 4B — VSD: ROI 1 CORRECTED (ROI 2 AS VIRTUAL GROUND) FILMSTRIP
 %% =========================================================================
-if num_files >= 2
+if num_files >= 2 && run_fig4b
     fprintf('Building Fig 4B — ROI 1 Corrected (Virtual Ground) filmstrip...\n');
     corrected_stack = norm_stacks{1} - norm_stacks{2};
     corrected_stack(corrected_stack < 0) = 0;
@@ -385,7 +410,7 @@ end
 %% =========================================================================
 %% FIGURE 5 — VSD: INTERACTIVE SPATIAL VIEWER
 %% =========================================================================
-if num_files >= 2
+if num_files >= 2 && run_fig5
     fprintf('Launching Interactive Spatial Viewer...\n');
     vsd_time_ms    = ((plot_frames_v - smart_trigger_idx) / Fs) * 1000;
     num_subplots_v = length(plot_frames_v);
@@ -495,7 +520,7 @@ fprintf('\nAll VSD figures rendered.\n');
 %% =========================================================================
 %% FIGURE 5B — VSD: DIFFERENTIAL TIME COURSE (OPTICAL DIPOLE)
 %% =========================================================================
-if num_files >= 2
+if num_files >= 2 && run_fig5b
     fprintf('Building Fig 5B - Differential Time Course (ROI_1 - ROI_2)...\n');
     fig5b = figure('Name','Fig 5B - Optical Dipole (ROI_1 - ROI_2)','Color','w','Position',[250 150 900 650]);
     ax1 = subplot(2,1,1);
@@ -618,6 +643,7 @@ end
 %% =========================================================================
 %% FIGURE 6 — MEA: RECONSTRUCTED DASHBOARD
 %% =========================================================================
+if run_fig6
 figure('Name','Fig 6 - Reconstructed Dashboard (MEA ERPs)','Color','w','Position',[100 50 1400 900]);
 clip_uV  = 500;
 dyn_ylim = [-clip_uV, clip_uV];
@@ -636,10 +662,12 @@ for i = 1:64
     hold off;
 end
 sgtitle('Subject 0503 - Averaged ERPs (Reconstructed Dashboard)','FontSize',12,'FontWeight','bold');
+end
 
 %% =========================================================================
 %% FIGURE 7 — MEA: INTERACTIVE CSD GUI
 %% =========================================================================
+if run_fig7
 fprintf('Building CSD grid and launching Interactive GUI...\n');
 nTime  = sum(roiIdx);
 V_grid = NaN(9, 8, nTime);
@@ -703,11 +731,11 @@ hold(axCSD,'on');
 hMarker = plot(axCSD, NaN, NaN, 'w+','MarkerSize',14,'LineWidth',2);
 hold(axCSD,'off');
 btnPlay  = uicontrol('Style','pushbutton','String','▶  Play','Position',[60 20 110 35],...
-    'BackgroundColor',[0.2 0.6 0.2],'ForegroundColor','w','FontSize',11,'FontWeight','bold','Callback',@onPlay);
+    'BackgroundColor',[0.2 0.6 0.2],'ForegroundColor','w','FontSize',11,'FontWeight','bold','Callback',@(src,~) onPlay(src));
 uicontrol('Style','pushbutton','String','↺  Replay','Position',[185 20 110 35],...
-    'BackgroundColor',[0.2 0.4 0.7],'ForegroundColor','w','FontSize',11,'FontWeight','bold','Callback',@onReplay);
+    'BackgroundColor',[0.2 0.4 0.7],'ForegroundColor','w','FontSize',11,'FontWeight','bold','Callback',@(src,~) onReplay(src));
 sldFrame = uicontrol('Style','slider','Min',1,'Max',nFrames_gui,'Value',1,...
-    'SliderStep',[1/(nFrames_gui-1), 10/(nFrames_gui-1)],'Position',[315 22 300 22],'Callback',@onSlider);
+    'SliderStep',[1/(nFrames_gui-1), 10/(nFrames_gui-1)],'Position',[315 22 300 22],'Callback',@(src,~) onSlider(src));
 lblTime  = uicontrol('Style','text','String',sprintf('%.1f ms',tFinal(1)),...
     'Position',[625 20 80 25],'BackgroundColor','k','ForegroundColor','w','FontSize',10);
 setappdata(hFig,'CSD_display',       CSD_display);
@@ -734,6 +762,14 @@ setappdata(hFig,'axWave',            axWave);
 setappdata(hFig,'axCSD',             axCSD);
 set(hImg,'ButtonDownFcn',@onImageClick);
 set(hFig,'KeyPressFcn',@onKeyPress);
+
+% ── Save Video button ─────────────────────────────────────────────────────
+uicontrol('Style','pushbutton','String','⏺  Save Video','Position',[720 20 130 35],...
+    'BackgroundColor',[0.55 0.15 0.15],'ForegroundColor','w',...
+    'FontSize',11,'FontWeight','bold','Callback',@(src,~) onSaveCSDVideo(src));
+
+setappdata(hFig,'merged_label', merged_label);
+end % run_fig7
 
 %% =========================================================================
 %% SECTION G2 — MEA GRID PLACEMENT
@@ -828,6 +864,7 @@ end
 %% =========================================================================
 %% FIGURE 8 — VSD+CSD OVERLAY VIDEO
 %% =========================================================================
+if run_fig8
 fprintf('\nBuilding Fig 8 - VSD+CSD Overlay Video...\n');
 csd_per_elec = zeros(64, length(tFinal));
 for ei = 1:64
@@ -891,6 +928,7 @@ end
 close(vid8);
 set(hF8,'Name','Fig 8 - VSD+CSD [saved]');
 fprintf('  Fig 8 video saved.\n');
+end % run_fig8
 
 %% =========================================================================
 %% FIGURE 9 — DUAL ROI OVERLAY VIDEO  [PRESENTATION-READY]
@@ -899,10 +937,16 @@ fprintf('  Fig 8 video saved.\n');
 % symmetric colorbars flanking the image, green border flash at trigger.
 % Dipole side panel removed. 24 fps for smooth projector playback.
 % =========================================================================
+if run_fig9
 fprintf('\nBuilding Fig 9 - Dual ROI Overlay Video (Presentation-Ready)...\n');
 
 % ── Output canvas dimensions ──────────────────────────────────────────────
-OUT_W         = 1920;  OUT_H = 1080;
+% OUT_W / OUT_H = pixel resolution of the saved video.
+% SCREEN_SCALE  = fraction of OUT_W/OUT_H used for the on-screen figure
+%                 window. Reduce if the window is larger than your monitor.
+%                 The video itself is always full OUT_W x OUT_H regardless.
+OUT_W         = 1280;  OUT_H = 720;   % ← change to 1920/1080 for full HD
+SCREEN_SCALE  = 0.75;                 % ← reduce (e.g. 0.5) if window is cropped on your display
 MARGIN_TOP    = 80;    % title strip height (px)
 MARGIN_BOTTOM = 60;    % timestamp bar height (px)
 MARGIN_SIDE   = 180;   % side margin for colorbars (px, each side)
@@ -938,10 +982,11 @@ CB_H  = round(disp_h9 * 0.65);
 CB_Y  = img_y9 + floor((disp_h9 - CB_H)/2);
 CB_GAP = 28;
 
-fig9_ann_w   = OUT_W / 1.5;
-fig9_ann_h   = OUT_H / 1.5;
-title_strip_h = MARGIN_TOP    / (OUT_H/1.5) * fig9_ann_h;
-ts_strip_h    = MARGIN_BOTTOM / (OUT_H/1.5) * fig9_ann_h;
+% Annotation axes use the true output resolution as coordinate space
+fig9_ann_w    = OUT_W;
+fig9_ann_h    = OUT_H;
+title_strip_h = MARGIN_TOP;
+ts_strip_h    = MARGIN_BOTTOM;
 
 [cb_lo1,cb_hi1] = colorbar_range(alphas_used(1), recalc_colorbar_from_zero);
 [cb_lo2,cb_hi2] = colorbar_range(alphas_used(2), recalc_colorbar_from_zero);
@@ -956,17 +1001,25 @@ vid9_name = sprintf('Fig9_DualROI_%s_HD.mp4', merged_label);
 vid9 = VideoWriter(vid9_name,'MPEG-4');
 vid9.FrameRate = 24;  vid9.Quality = 98;  open(vid9);
 
+% Figure is sized to OUT_W x OUT_H in pixels; renderer writes at that
+% exact size so getframe always captures the full frame.
 hF9 = figure('Name','Fig 9 - Dual ROI Overlay (rendering...)', ...
-    'Color','k','Position',[50 50 OUT_W/1.5 OUT_H/1.5],'Visible','on');
+    'Color','k', ...
+    'Position',[50 50 round(OUT_W*SCREEN_SCALE) round(OUT_H*SCREEN_SCALE)], ...
+    'Visible','on');
+set(hF9,'Units','pixels', ...
+    'PaperUnits','inches', ...
+    'PaperPosition',[0 0 OUT_W/96 OUT_H/96]);  % 96 dpi reference
 
-% VSD image axes
-ax9_main = axes('Parent',hF9,'Units','pixels', ...
-    'Position',[img_x9, img_y9, disp_w9, disp_h9], ...
+% VSD image axes — pixel positions in the OUTPUT coordinate space,
+% but placed using normalized units so they scale with SCREEN_SCALE.
+ax9_main = axes('Parent',hF9,'Units','normalized', ...
+    'Position',[img_x9/OUT_W, img_y9/OUT_H, disp_w9/OUT_W, disp_h9/OUT_H], ...
     'XColor','none','YColor','none','Color','k');
 
 % ROI_1 colorbar — left of image
-ax9_cb1 = axes('Parent',hF9,'Units','pixels', ...
-    'Position',[img_x9 - CB_GAP - CB_W, CB_Y, CB_W, CB_H]);
+ax9_cb1 = axes('Parent',hF9,'Units','normalized', ...
+    'Position',[(img_x9-CB_GAP-CB_W)/OUT_W, CB_Y/OUT_H, CB_W/OUT_W, CB_H/OUT_H]);
 image(ax9_cb1, flipud(permute(reshape(cmaps_used{1},[n_cb,1,3]),[1 2 3])));
 set(ax9_cb1,'XTick',[],'YTick',tick_p, ...
     'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v1),'UniformOutput',false), ...
@@ -975,8 +1028,8 @@ ylabel(ax9_cb1,'ROI 1  \DeltaF/F_0','Color','w','FontSize',15,'FontWeight','bold
     'Units','normalized','Position',[-1.6,0.5,0]);
 
 % ROI_2 colorbar — right of image
-ax9_cb2 = axes('Parent',hF9,'Units','pixels', ...
-    'Position',[img_x9 + disp_w9 + CB_GAP, CB_Y, CB_W, CB_H]);
+ax9_cb2 = axes('Parent',hF9,'Units','normalized', ...
+    'Position',[(img_x9+disp_w9+CB_GAP)/OUT_W, CB_Y/OUT_H, CB_W/OUT_W, CB_H/OUT_H]);
 image(ax9_cb2, flipud(permute(reshape(cmaps_used{2},[n_cb2,1,3]),[1 2 3])));
 set(ax9_cb2,'XTick',[],'YTick',tick_p, ...
     'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v2),'UniformOutput',false), ...
@@ -984,11 +1037,11 @@ set(ax9_cb2,'XTick',[],'YTick',tick_p, ...
     'LineWidth',1.2,'YAxisLocation','right');
 ylabel(ax9_cb2,'ROI 2  \DeltaF/F_0','Color','w','FontSize',15,'FontWeight','bold');
 
-% Annotation overlay axes (title strip, timestamp bar, trigger border)
-ax9_ann = axes('Parent',hF9,'Units','pixels', ...
-    'Position',[0,0,OUT_W/1.5,OUT_H/1.5], ...
+% Annotation overlay axes — spans the full output canvas in normalized units
+ax9_ann = axes('Parent',hF9,'Units','normalized', ...
+    'Position',[0,0,1,1], ...
     'Color','none','XColor','none','YColor','none', ...
-    'XLim',[0 OUT_W/1.5],'YLim',[0 OUT_H/1.5]);
+    'XLim',[0 OUT_W],'YLim',[0 OUT_H]);
 ax9_ann.HitTest = 'off';
 
 rectangle(ax9_ann,'Position',[0, fig9_ann_h-title_strip_h, fig9_ann_w, title_strip_h], ...
@@ -1046,11 +1099,12 @@ end
 close(vid9);
 set(hF9,'Name',sprintf('Fig 9 - Dual ROI Overlay [saved: %s]', vid9_name));
 fprintf('  Fig 9 video saved: %s\n', vid9_name);
+end % run_fig9
 
 %% =========================================================================
 %% FIGURE 10 — VSD OPTICAL DIPOLE vs. MEA ELECTRODE OVERLAY
 %% =========================================================================
-if num_files >= 2
+if num_files >= 2 && run_fig10
     fprintf('\nBuilding Fig 10 - VSD Optical Dipole vs MEA Overlay...\n');
     raw_diff_trace    = comp_traces{1} - comp_traces{2};
     smooth_diff_trace = smoothdata(raw_diff_trace, 'movmean', 5);
@@ -1090,7 +1144,7 @@ end
 % Optical dipole side panel removed.
 % Inherits HD canvas geometry from Fig 9 block above.
 % =========================================================================
-if num_files >= 2
+if num_files >= 2 && run_fig11
     fprintf('\nBuilding Fig 11 - Dual ROI + CSD (Presentation-Ready)...\n');
 
     % ── Compute baseline-corrected dipole (saved to .mat; not displayed) ──
@@ -1113,16 +1167,16 @@ if num_files >= 2
     vid11.FrameRate = 24;  vid11.Quality = 98;  open(vid11);
 
     hF11 = figure('Name','Fig 11 - Dual ROI + CSD (rendering...)', ...
-        'Color','k','Position',[80 80 OUT_W/1.5 OUT_H/1.5],'Visible','on');
+        'Color','k','Position',[80 80 round(OUT_W*SCREEN_SCALE) round(OUT_H*SCREEN_SCALE)],'Visible','on');
 
-    % VSD image axes — identical geometry to Fig 9
-    ax11_main = axes('Parent',hF11,'Units','pixels', ...
-        'Position',[img_x9, img_y9, disp_w9, disp_h9], ...
+    % VSD image axes — normalized so they scale with SCREEN_SCALE
+    ax11_main = axes('Parent',hF11,'Units','normalized', ...
+        'Position',[img_x9/OUT_W, img_y9/OUT_H, disp_w9/OUT_W, disp_h9/OUT_H], ...
         'XColor','none','YColor','none','Color','k');
 
     % ROI_1 colorbar — left
-    ax11_cb1 = axes('Parent',hF11,'Units','pixels', ...
-        'Position',[img_x9-CB_GAP-CB_W, CB_Y, CB_W, CB_H]);
+    ax11_cb1 = axes('Parent',hF11,'Units','normalized', ...
+        'Position',[(img_x9-CB_GAP-CB_W)/OUT_W, CB_Y/OUT_H, CB_W/OUT_W, CB_H/OUT_H]);
     image(ax11_cb1, flipud(permute(reshape(cmaps_used{1},[n_cb,1,3]),[1 2 3])));
     set(ax11_cb1,'XTick',[],'YTick',tick_p, ...
         'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v1),'UniformOutput',false), ...
@@ -1131,8 +1185,8 @@ if num_files >= 2
         'Units','normalized','Position',[-1.6,0.5,0]);
 
     % ROI_2 colorbar — right
-    ax11_cb2 = axes('Parent',hF11,'Units','pixels', ...
-        'Position',[img_x9+disp_w9+CB_GAP, CB_Y, CB_W, CB_H]);
+    ax11_cb2 = axes('Parent',hF11,'Units','normalized', ...
+        'Position',[(img_x9+disp_w9+CB_GAP)/OUT_W, CB_Y/OUT_H, CB_W/OUT_W, CB_H/OUT_H]);
     image(ax11_cb2, flipud(permute(reshape(cmaps_used{2},[n_cb2,1,3]),[1 2 3])));
     set(ax11_cb2,'XTick',[],'YTick',tick_p, ...
         'YTickLabel',arrayfun(@(v)sprintf('%.2f',v),fliplr(tick_v2),'UniformOutput',false), ...
@@ -1140,11 +1194,11 @@ if num_files >= 2
         'LineWidth',1.2,'YAxisLocation','right');
     ylabel(ax11_cb2,'ROI 2  \DeltaF/F_0','Color','w','FontSize',15,'FontWeight','bold');
 
-    % Annotation axes
-    ax11_ann = axes('Parent',hF11,'Units','pixels', ...
-        'Position',[0,0,OUT_W/1.5,OUT_H/1.5], ...
+    % Annotation axes — full canvas, normalized
+    ax11_ann = axes('Parent',hF11,'Units','normalized', ...
+        'Position',[0,0,1,1], ...
         'Color','none','XColor','none','YColor','none', ...
-        'XLim',[0 OUT_W/1.5],'YLim',[0 OUT_H/1.5]);
+        'XLim',[0 OUT_W],'YLim',[0 OUT_H]);
     ax11_ann.HitTest = 'off';
 
     rectangle(ax11_ann,'Position',[0, fig9_ann_h-title_strip_h, fig9_ann_w, title_strip_h], ...
@@ -1214,8 +1268,101 @@ if num_files >= 2
 end
 
 %% =========================================================================
+%% FIGURE 14 — ROI BOUNDARIES ONLY (presentation-ready)
+%% =========================================================================
+if run_fig14
+fprintf('\nBuilding Fig 14 - ROI Boundaries...\n');
+roi_colors = {[1.0 0.65 0.0], [1.0 0.25 0.25]};  % orange / red
+boundary_lw = 3;   % boundary line width (pt)
+fig14 = figure('Name','Fig 14 - ROI Boundaries','Color','k', ...
+    'Position',[100 100 round(orig_w*1.6) round(orig_h*1.6)]);
+ax14 = axes('Parent',fig14,'Position',[0 0 1 1], ...
+    'XColor','none','YColor','none','Color','k');
+imshow(bg_uint8,'Parent',ax14);
+hold(ax14,'on');
+for k = 1:num_files
+    % Derive hard binary boundary from the feathered mask
+    bw      = freehand_masks{k} >= 0.5;
+    bw_erode = imerode(bw, strel('disk',1));
+    boundary_px = bw & ~bw_erode;          % 1-px ring
+    % Dilate slightly so the line is visible at presentation scale
+    boundary_px = imdilate(boundary_px, strel('disk', max(1, round(orig_h/200))));
+    % Overlay as a coloured mask
+    col = roi_colors{min(k,end)};
+    overlay = zeros(orig_h, orig_w, 3);
+    for c = 1:3, overlay(:,:,c) = boundary_px * col(c); end
+    h_ov = imshow(overlay,'Parent',ax14);
+    set(h_ov,'AlphaData', double(boundary_px) * 0.92);
+    % Label centroid
+    props  = regionprops(bw,'Centroid');
+    if ~isempty(props)
+        cx = props(1).Centroid(1);
+        cy = props(1).Centroid(2);
+        text(ax14, cx, cy, sprintf('ROI %d', k), ...
+            'Color',col,'FontSize',max(14,round(orig_h*0.055)), ...
+            'FontWeight','bold','HorizontalAlignment','center', ...
+            'VerticalAlignment','middle', ...
+            'BackgroundColor',[0 0 0 0.55]);
+    end
+end
+hold(ax14,'off');
+% title(ax14, 'ROI Boundaries', 'Color','w', ...
+%     'FontSize',16,'FontWeight','bold','Units','normalized','Position',[0.5 0.97]);
+% Save as high-res PNG for slides
+exportgraphics(fig14, sprintf('Fig14_ROI_Boundaries_%s.png', merged_label), ...
+    'Resolution',150,'BackgroundColor','black');
+fprintf('  Fig 14 saved: Fig14_ROI_Boundaries_%s.png\n', merged_label);
+end % run_fig14
+
+%% =========================================================================
+%% FIGURE 15 — ELECTRODE D2 ERP ONLY (presentation-ready)
+%% =========================================================================
+if run_fig15
+fprintf('\nBuilding Fig 15 - Electrode D2 ERP...\n');
+f15_target_row = 4;   % D = row 4 in row_chars ('ABCDEFGHJ')
+f15_target_col = 2;
+ch15 = find(row_map == f15_target_row & col_map_flipped == f15_target_col, 1);
+if isempty(ch15)
+    fprintf('  WARNING: Electrode D2 not found — skipping Fig 15.\n');
+else
+    elec_label15 = [row_chars(row_map(ch15)) num2str(col_map_flipped(ch15))];
+    avg15        = erpAvg(ch15, roiIdx);
+    csd15        = squeeze(CSD_display(row_map(ch15), col_map_flipped(ch15), :))';
+
+    fig15 = figure('Name',sprintf('Fig 15 - Electrode %s ERP', elec_label15), ...
+        'Color','k','Position',[150 150 1000 480]);
+
+    ax15a = axes('Parent',fig15,'Color','k','XColor','w','YColor','w', ...
+        'FontSize',13,'GridColor',[0.3 0.3 0.3],'GridAlpha',0.5, ...
+        'Position',[0.10 0.14 0.86 0.72]);
+    hold(ax15a,'on');
+    % Averaged ERP trace only
+    plot(ax15a, tFinal, avg15, 'Color',[0.25 0.75 1.0], 'LineWidth',3.0, ...
+        'DisplayName', sprintf('Electrode %s', elec_label15));
+    % Trigger line
+    xline(ax15a, 0,'--','Color',[0.95 0.88 0.25],'LineWidth',1.8, ...
+        'DisplayName','Trigger');
+    yline(ax15a, 0, '-','Color',[0.45 0.45 0.45],'LineWidth',0.8,'HandleVisibility','off');
+    hold(ax15a,'off');
+    ylabel(ax15a,'Amplitude (\muV)','Color','w','FontSize',14,'FontWeight','bold');
+    xlabel(ax15a,'Time (ms)','Color','w','FontSize',14,'FontWeight','bold');
+    title(ax15a, sprintf('Electrode %s  —  Averaged ERP', elec_label15), ...
+        'Color','w','FontSize',15,'FontWeight','bold');
+    legend(ax15a,'Location','northeast','TextColor','w','Color','k', ...
+        'EdgeColor',[0.4 0.4 0.4],'FontSize',12);
+    xlim(ax15a,[tFinal(1) tFinal(end)]); grid(ax15a,'on');
+
+    % Save as high-res PNG
+    exportgraphics(fig15, sprintf('Fig15_Electrode%s_ERP_%s.png', elec_label15, merged_label), ...
+        'Resolution',150,'BackgroundColor','black');
+    fprintf('  Fig 15 saved: Fig15_Electrode%s_ERP_%s.png\n', elec_label15, merged_label);
+end % ch15 found
+end % run_fig15
+
+%% =========================================================================
 %% FIGURE 12 — CSD TIME-LAPSE MONTAGE
 %% =========================================================================
+if run_fig12
 fprintf('\nBuilding Fig 12 - CSD Time-Lapse Montage...\n');
 montage_times = [0, 8, 12, 14, 18, 20, 22, 24];
 num_montage = length(montage_times);
@@ -1232,11 +1379,12 @@ for mi = 1:num_montage
     title(ax_m, sprintf('%+.1f ms', tFinal(t_idx)), 'FontSize', 11, 'FontWeight', 'bold');
 end
 sgtitle(fig12, 'CSD Spatiotemporal Evolution', 'FontSize', 14, 'FontWeight', 'bold');
+end % run_fig12
 
 %% =========================================================================
 %% FIGURE 13 — DUAL ROI + CSD TIME-LAPSE MONTAGE
 %% =========================================================================
-if num_files >= 2
+if num_files >= 2 && run_fig13
     fprintf('\nBuilding Fig 13 - Dual ROI + CSD Montage...\n');
     fig13 = figure('Name','Fig 13 - VSD+CSD Montage','Color','k','Position',[100 450 1600 350]);
     for mi = 1:num_montage
@@ -1294,6 +1442,8 @@ fprintf('Fig  10  : VSD Optical Dipole vs MEA Overlay\n');
 fprintf('Fig  11  : Dual ROI + CSD Overlay [HD, dipole panel removed] — %s\n', vid11_name);
 fprintf('Fig  12  : CSD Time-Lapse Montage\n');
 fprintf('Fig  13  : Dual ROI + CSD Time-Lapse Montage\n');
+fprintf('Fig  14  : ROI Boundaries (PNG export)\n');
+fprintf('Fig  15  : Electrode D2 Waveform + CSD (PNG export)\n');
 fprintf('Toggle   : recalc_colorbar_from_zero = %d\n', recalc_colorbar_from_zero);
 fprintf('Toggle   : flip_mea_columns = %d\n', flip_mea_columns);
 fprintf('ROI frame: %d  |  feather: %d px\n', freehand_frame, roi_feather_px);
@@ -1579,6 +1729,88 @@ function onImageClick(src, evt)
     xlim(axWave,[tFinal_g(1) tFinal_g(end)]);
     grid(axWave,'on');
     set(axWave,'GridColor',[0.3 0.3 0.3],'FontSize',8,'XColor','w');
+end
+function onSaveCSDVideo(src, ~)
+    hFig   = ancestor(src, 'figure');
+    CSD_d  = getappdata(hFig, 'CSD_display');
+    tF     = getappdata(hFig, 'tFinal');
+    c_lim  = getappdata(hFig, 'c_limits');
+    nF     = getappdata(hFig, 'nFrames');
+    rc     = getappdata(hFig, 'row_chars');
+    mlabel = getappdata(hFig, 'merged_label');
+
+    % Stop playback if running
+    playing = getappdata(hFig, 'playing');
+    if playing
+        t = getappdata(hFig, 'timerObj');
+        if ~isempty(t) && isvalid(t), stop(t); delete(t); end
+        setappdata(hFig, 'playing', false);
+        set(getappdata(hFig,'btnPlay'),'String','▶  Play','BackgroundColor',[0.2 0.6 0.2]);
+    end
+
+    % Disable button during render
+    set(src, 'String','Rendering...', 'Enable','off', 'BackgroundColor',[0.35 0.35 0.35]);
+    drawnow;
+
+    % ── Build a dedicated offscreen figure — CSD grid only ────────────────
+    VID_W = 720;  VID_H = 720;
+    hVid = figure('Color','k','Visible','off', ...
+        'Position',[200 200 VID_W VID_H]);
+
+    % CSD image axes — leaves room for colorbar on the right and labels
+    ax_v = axes('Parent', hVid, 'Position',[0.10 0.10 0.68 0.80], ...
+        'Color','k','XColor','w','YColor','w','FontSize',11,'LineWidth',1.2);
+
+    % Colorbar axes — fixed strip to the right
+    ax_cb = axes('Parent', hVid, 'Position',[0.82 0.10 0.04 0.80]);
+    cmap_v = jet(256);
+    image(ax_cb, flipud(permute(reshape(cmap_v,[256,1,3]),[1 2 3])));
+    tick_p = round(linspace(1,256,5));
+    tick_v = linspace(c_lim(1), c_lim(2), 5);
+    set(ax_cb, 'XTick',[], 'YTick', tick_p, ...
+        'YTickLabel', arrayfun(@(v)sprintf('%.0f',v), fliplr(tick_v), 'UniformOutput',false), ...
+        'TickDir','out','FontSize',10,'YColor','w','LineWidth',1.0);
+    ylabel(ax_cb,'CSD (a.u.)','Color','w','FontSize',12,'FontWeight','bold');
+
+    % Initial frame in CSD axes
+    fd0 = squeeze(CSD_d(:,:,1));
+    hImg_v = imagesc(ax_v, fd0, c_lim);
+    set(hImg_v,'AlphaData', double(~isnan(fd0)));
+    colormap(ax_v, cmap_v);
+    axis(ax_v,'square');
+    set(ax_v,'YDir','reverse','XTick',1:8,'YTick',1:9, ...
+        'XTickLabel',num2cell(1:8),'YTickLabel',cellstr(rc(:)), ...
+        'GridColor',[0.3 0.3 0.3]);
+    xlabel(ax_v,'Column','Color','w','FontSize',12,'FontWeight','bold');
+    ylabel(ax_v,'Row','Color','w','FontSize',12,'FontWeight','bold');
+    hTtl_v = title(ax_v, sprintf('CSD  |  %.1f ms', tF(1)), ...
+        'Color','w','FontSize',12,'FontWeight','bold');
+
+    % ── Video writer ──────────────────────────────────────────────────────
+    vid_name = sprintf('Fig7_CSD_%s.mp4', mlabel);
+    vidObj   = VideoWriter(vid_name, 'MPEG-4');
+    vidObj.FrameRate = 24;
+    vidObj.Quality   = 95;
+    open(vidObj);
+
+    for f = 1:nF
+        fd = squeeze(CSD_d(:,:,f));
+        set(hImg_v, 'CData', fd, 'AlphaData', double(~isnan(fd)));
+        clim(ax_v, c_lim);
+        set(hTtl_v, 'String', sprintf('CSD  |  %+.1f ms', tF(f)));
+        drawnow;
+        writeVideo(vidObj, getframe(hVid));
+    end
+
+    close(vidObj);
+    delete(hVid);
+
+    % Re-enable button
+    set(src,'String','⏺  Save Video','Enable','on','BackgroundColor',[0.55 0.15 0.15]);
+    fprintf('  Fig 7 CSD video saved: %s\n', vid_name);
+    title(getappdata(hFig,'axCSD'), ...
+        sprintf('CSD  |  Saved: %s  |  [SPACE] Play/Pause  |  [R] Replay  |  ← → Scrub', vid_name), ...
+        'Color',[0.4 1.0 0.4],'FontSize',9);
 end
 function guiCloseReq(src,~)
     t = getappdata(src,'timerObj');
