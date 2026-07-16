@@ -86,22 +86,22 @@ Subtracting a distant reference region of interest (ROI) removes common-mode bac
 ## Repository Directory Map
 
 ### 1. Ingestion & Pre-processing (Python)
-* [optimized_blk_converter.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/optimized_blk_converter.py) / [blk_batch_converter.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/blk_batch_converter.py): High-performance, memory-mapped batch converters translating proprietary `.BLK` binary movies to chunked, compressed HDF5 (`.h5`) formats.
-* [blk_log_parser.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/blk_log_parser.py): Ingests acquisition logs and extracts structured JSON trial metadata (FPS, stimulus parameters).
-* [batch_demux_1000.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/batch_demux_1000.py): Interleaves dual-illumination structural and functional frames based on contrast thresholds.
-* [video_stitcher.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/video_stitcher.py) / [raw_vs_motion_visualization.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/raw_vs_motion_visualization.py): Generates comparison diagnostic clips comparing raw and registered movies side-by-side.
+* [optimized_blk_converter.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/python/ingestion/optimized_blk_converter.py) / [blk_batch_converter.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/python/ingestion/blk_batch_converter.py): High-performance, memory-mapped batch converters translating proprietary `.BLK` binary movies to chunked, compressed HDF5 (`.h5`) formats.
+* [blk_log_parser.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/python/ingestion/blk_log_parser.py): Ingests acquisition logs and extracts structured JSON trial metadata (FPS, stimulus parameters).
+* [batch_demux_1000.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/python/preprocessing/batch_demux_1000.py): Interleaves dual-illumination structural and functional frames based on contrast thresholds.
+* [video_stitcher.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/python/visualization/video_stitcher.py) / [raw_vs_motion_visualization.py](file:///c:/Roy/Code/vsdi/vsdi-pipeline/python/visualization/raw_vs_motion_visualization.py): Generates comparison diagnostic clips comparing raw and registered movies side-by-side.
 
 ### 2. Core Signal Processing (MATLAB)
-* [vsd_motion_correct.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/vsd_motion_correct.m) / [vsd_batch_runner.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/vsd_batch_runner.m): Performs variational non-parametric optical flow alignment on the structural green channel and applies deformation vectors back to the functional red channel.
-* [parallax_reduction.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/parallax_reduction.m): Corrects depth-dependent motion artifacts utilizing a multi-scale Laplacian pyramid.
-* [run_single_trials.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/run_single_trials.m) / [run_trial_averaging.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/run_trial_averaging.m): Extracts $\Delta F/F_0$ fractional change, performs trial averaging, and applies Gaussian/Median spatial filtering.
-* [analysis_Step1_Concatenate.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/analysis_Step1_Concatenate.m): Concatenates sweeps across time and applies derivative tangent projections to recover trigger timings.
+* [vsd_motion_correct.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/motion_correction/vsd_motion_correct.m) / [vsd_batch_runner.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/motion_correction/vsd_batch_runner.m): Performs variational non-parametric optical flow alignment on the structural green channel and applies deformation vectors back to the functional red channel.
+* [parallax_reduction.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/motion_correction/parallax_reduction.m): Corrects depth-dependent motion artifacts utilizing a multi-scale Laplacian pyramid.
+* [run_single_trials.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/signal_extraction/run_single_trials.m) / [run_trial_averaging.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/signal_extraction/run_trial_averaging.m): Extracts $\Delta F/F_0$ fractional change, performs trial averaging, and applies Gaussian/Median spatial filtering.
+* [analysis_Step1_Concatenate.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/signal_extraction/analysis_Step1_Concatenate.m): Concatenates sweeps across time and applies derivative tangent projections to recover trigger timings.
 
 ### 3. Decomposition & Fusion (MATLAB)
-* [nmf_decomp.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/nmf_decomp.m): Dimensionality reduction via SVD followed by Non-Negative Matrix Factorization (NMF) with Alternating Least Squares (ALS) optimization.
-* [post_reconstruction_v4.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/post_reconstruction_v4.m): Filters, thresholds, and reconstructs the isolated biological wavefront from the selected NMF components.
-* [MEA_Interactive_GUI.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/MEA_Interactive_GUI.m): A GUI to register and overlay the 64-channel array geometry onto the optical cortical surface coordinates.
-* [VSD_MEA.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/VSD_MEA.m): Integrated multimodal script that performs MEA notch/bandpass filtering, 2D Laplacian CSD estimation, optical dipole alignment, and exports spatiotemporal overlays.
+* [nmf_decomp.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/decomposition/nmf_decomp.m): Dimensionality reduction via SVD followed by Non-Negative Matrix Factorization (NMF) with Alternating Least Squares (ALS) optimization.
+* [post_reconstruction_v4.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/decomposition/post_reconstruction_v4.m): Filters, thresholds, and reconstructs the isolated biological wavefront from the selected NMF components.
+* [MEA_Interactive_GUI.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/mea_fusion/MEA_Interactive_GUI.m): A GUI to register and overlay the 64-channel array geometry onto the optical cortical surface coordinates.
+* [VSD_MEA.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/mea_fusion/VSD_MEA.m): Integrated multimodal script that performs MEA notch/bandpass filtering, 2D Laplacian CSD estimation, optical dipole alignment, and exports spatiotemporal overlays.
 
 ---
 
@@ -118,7 +118,8 @@ Subtracting a distant reference region of interest (ROI) removes common-mode bac
 ### MATLAB Environment
 * MATLAB R2021a or newer.
 * Required Toolboxes: **Signal Processing Toolbox**, **Image Processing Toolbox**, **Computer Vision Toolbox**.
-* **External Dependency**: The optical flow calculation in [vsd_motion_correct.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/vsd_motion_correct.m) requires the external `flow_registration` registration library. Ensure this library path is added to your MATLAB path environment.
+* **Startup Initialization**: Run the [startup.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/startup.m) script at the root folder of the repository. This dynamically adds all subfolders containing dependencies to your MATLAB search path.
+* **External Dependency**: The optical flow calculation in [vsd_motion_correct.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/motion_correction/vsd_motion_correct.m) requires the external `flow_registration` registration library. Ensure this library path is added to your MATLAB path environment.
 
 ---
 
@@ -126,15 +127,16 @@ Subtracting a distant reference region of interest (ROI) removes common-mode bac
 
 1. **HDF5 Ingestion**: Convert raw `.BLK` files to compressed `.h5` files:
    ```bash
-   python optimized_blk_converter.py "path/to/raw/*.BLK" -o "path/to/converted/"
+   python python/ingestion/optimized_blk_converter.py "path/to/raw/*.BLK" -o "path/to/converted/"
    ```
-2. **Motion Stabilization**: Open MATLAB and execute [vsd_batch_runner.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/vsd_batch_runner.m). Select the converted HDF5 files to perform variational optical flow registration. This yields stabilized `*_corrected.h5` datasets.
-3. **Trial Averaging**: Run [run_trial_averaging.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/run_trial_averaging.m) to calculate baseline $F_0$, extract $\Delta F/F_0$, and average sweeps.
-4. **Trigger Detection & Concatenation**: Execute [analysis_Step1_Concatenate.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/analysis_Step1_Concatenate.m) to stitch trials and identify precise stimulus onset markers.
-5. **NMF Component Separation**: Execute [nmf_decomp.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/nmf_decomp.m). Identify and select non-negative components corresponding to the cortical depolarization wave (excluding heartbeat/striping artifacts).
+2. **Motion Stabilization**: Open MATLAB, execute [startup.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/startup.m) to initialize paths, then run [vsd_batch_runner.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/motion_correction/vsd_batch_runner.m). Select the converted HDF5 files to perform variational optical flow registration. This yields stabilized `*_corrected.h5` datasets.
+3. **Trial Averaging**: Run [run_trial_averaging.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/signal_extraction/run_trial_averaging.m) to calculate baseline $F_0$, extract $\Delta F/F_0$, and average sweeps.
+4. **Trigger Detection & Concatenation**: Execute [analysis_Step1_Concatenate.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/signal_extraction/analysis_Step1_Concatenate.m) to stitch trials and identify precise stimulus onset markers.
+5. **NMF Component Separation**: Execute [nmf_decomp.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/decomposition/nmf_decomp.m). Identify and select non-negative components corresponding to the cortical depolarization wave (excluding heartbeat/striping artifacts).
 6. **Multimodal Fusion**:
-   * Open [MEA_Interactive_GUI.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/MEA_Interactive_GUI.m) to align the electrode array indices with the VSD structural vessel map.
-   * Run [VSD_MEA.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/VSD_MEA.m) to filter MEA waveforms, compute CSD, synthesize the optical dipole difference, and render overlay animations.
+   * Open [MEA_Interactive_GUI.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/mea_fusion/MEA_Interactive_GUI.m) to align the electrode array indices with the VSD structural vessel map.
+   * Run [VSD_MEA.m](file:///c:/Roy/Code/vsdi/vsdi-pipeline/matlab/mea_fusion/VSD_MEA.m) to filter MEA waveforms, compute CSD, synthesize the optical dipole difference, and render overlay animations.
+
 
 ---
 
